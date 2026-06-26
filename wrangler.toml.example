@@ -1,0 +1,24 @@
+name = "iodrive"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+routes = [{ pattern = "YOUR_DOMAIN/*", zone_name = "YOUR_ZONE" }]
+
+[vars]
+ADMIN_USER = "admin"
+R2_PUBLIC_DOMAIN = "YOUR_R2_PUBLIC_DOMAIN"
+R2_BUCKET = "YOUR_R2_BUCKET"
+R2_ACCOUNT_ID = "YOUR_R2_ACCOUNT_ID"
+TURNSTILE_SITE_KEY = "YOUR_TURNSTILE_SITE_KEY"
+
+S3_ENDPOINT = "YOUR_S3_ENDPOINT"
+S3_BUCKET = "YOUR_S3_BUCKET"
+S3_REGION = "YOUR_S3_REGION"
+PUBLIC_UPLOAD_PATH = "uploads/public/"
+
+[[r2_buckets]]
+binding = "DRIVE"
+bucket_name = "YOUR_R2_BUCKET"
+
+[observability.logs]
+enabled = true
+invocation_logs = true
