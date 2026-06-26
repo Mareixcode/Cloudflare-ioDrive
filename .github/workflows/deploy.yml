@@ -11,9 +11,41 @@ on:
       - demo
 
 jobs:
+  sync-demo:
+    name: Sync main to demo
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync demo branch with main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 检查远程 demo 分支是否存在
+          if git ls-remote --heads origin demo | grep -q demo; then
+            # demo 分支存在，执行同步
+            git checkout demo
+            git merge main --no-edit -X theirs
+            git push origin demo
+            echo "✅ demo branch synced with main"
+          else
+            # demo 分支不存在，创建它
+            git checkout -b demo
+            git push origin demo
+            echo "✅ demo branch created from main"
+          fi
+
   lint-and-typecheck:
     name: Lint & Type Check
     runs-on: ubuntu-latest
+    needs: sync-demo
+    if: always() && !cancelled()
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -51,11 +83,11 @@ jobs:
         run: npm test
         continue-on-error: true
 
-  deploy:
-    name: Deploy to Cloudflare Workers
+  deploy-main:
+    name: Deploy to Production
     runs-on: ubuntu-latest
-    needs: [lint-and-typecheck, test]
-    if: github.event_name == 'push'
+    needs: [sync-demo, lint-and-typecheck, test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -69,38 +101,44 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Deploy to main (drive.iodevo.com)
-        if: github.ref == 'refs/heads/main'
+      - name: Deploy to drive.iodevo.com
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy
 
-      - name: Deploy to demo (demo.iodevo.com)
-        if: github.ref == 'refs/heads/demo'
+      - name: Deployment Success
+        run: |
+          echo "✅ Production deployment successful!"
+          echo "🌐 https://drive.iodevo.com"
+
+  deploy-demo:
+    name: Deploy to Demo
+    runs-on: ubuntu-latest
+    needs: [lint-and-typecheck, test]
+    if: github.ref == 'refs/heads/demo' && github.event_name == 'push'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy to demo.iodevo.com
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --config wrangler.demo.toml
 
-  notify:
-    name: Notify Deployment
-    runs-on: ubuntu-latest
-    needs: deploy
-    if: always()
-    steps:
-      - name: Deployment Status
+      - name: Deployment Success
         run: |
-          if [ "${{ needs.deploy.result }}" == "success" ]; then
-            echo "✅ Deployment successful!"
-            if [ "${{ github.ref }}" == "refs/heads/main" ]; then
-              echo "🌐 Main site: https://drive.iodevo.com"
-            elif [ "${{ github.ref }}" == "refs/heads/demo" ]; then
-              echo "🌐 Demo site: https://demo.iodevo.com"
-            fi
-          else
-            echo "❌ Deployment failed"
-            exit 1
-          fi
+          echo "✅ Demo deployment successful!"
+          echo "🌐 https://demo.iodevo.com"
