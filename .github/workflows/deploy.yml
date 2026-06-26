@@ -60,13 +60,12 @@ jobs:
 
       - name: Create production config
         run: |
-          cat > wrangler.toml <<EOF
+          cat > wrangler.toml <<'EOF'
           name = "iodrive"
           main = "src/index.ts"
           compatibility_date = "2024-12-01"
           account_id = "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
           routes = [{ pattern = "drive.iodevo.com/*", zone_name = "iodevo.com" }]
-
           [vars]
           ADMIN_USER = "admin"
           R2_PUBLIC_DOMAIN = "r2.iodevo.com"
@@ -77,11 +76,9 @@ jobs:
           S3_BUCKET = "${{ secrets.S3_BUCKET }}"
           S3_REGION = "${{ secrets.S3_REGION }}"
           PUBLIC_UPLOAD_PATH = "uploads/public/"
-
           [[r2_buckets]]
           binding = "DRIVE"
           bucket_name = "iodrive"
-
           [observability.logs]
           enabled = true
           invocation_logs = true
@@ -89,7 +86,7 @@ jobs:
 
       - name: Create secrets file
         run: |
-          cat > .dev.vars <<EOF
+          cat > .dev.vars <<'EOF'
           ADMIN_PASS=${{ secrets.ADMIN_PASS }}
           TURNSTILE_SECRET=${{ secrets.TURNSTILE_SECRET }}
           TURNSTILE_SITE_KEY=${{ secrets.TURNSTILE_SITE_KEY }}
@@ -151,13 +148,12 @@ jobs:
 
       - name: Create demo config
         run: |
-          cat > wrangler.toml <<EOF
+          cat > wrangler.toml <<'EOF'
           name = "iodrive-demo"
           main = "src/index.ts"
           compatibility_date = "2024-12-01"
           account_id = "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
           routes = [{ pattern = "demo.iodevo.com/*", zone_name = "iodevo.com" }]
-
           [vars]
           ADMIN_USER = "admin"
           R2_PUBLIC_DOMAIN = "r2.iodevo.com"
@@ -168,11 +164,9 @@ jobs:
           S3_BUCKET = "${{ secrets.S3_BUCKET }}"
           S3_REGION = "${{ secrets.S3_REGION }}"
           PUBLIC_UPLOAD_PATH = "uploads/public/"
-
           [[r2_buckets]]
           binding = "DRIVE"
           bucket_name = "iodrive-demo"
-
           [observability.logs]
           enabled = true
           invocation_logs = true
