@@ -60,7 +60,7 @@ jobs:
 
       - name: Create production config
         run: |
-          cat > wrangler.toml << 'EOF'
+          cat > wrangler.toml <<EOF
           name = "iodrive"
           main = "src/index.ts"
           compatibility_date = "2024-12-01"
@@ -73,7 +73,6 @@ jobs:
           R2_BUCKET = "iodrive"
           R2_ACCOUNT_ID = "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
           TURNSTILE_SITE_KEY = "${{ secrets.TURNSTILE_SITE_KEY }}"
-
           S3_ENDPOINT = "${{ secrets.S3_ENDPOINT }}"
           S3_BUCKET = "${{ secrets.S3_BUCKET }}"
           S3_REGION = "${{ secrets.S3_REGION }}"
@@ -90,7 +89,7 @@ jobs:
 
       - name: Create secrets file
         run: |
-          cat > .dev.vars << 'EOF'
+          cat > .dev.vars <<EOF
           ADMIN_PASS=${{ secrets.ADMIN_PASS }}
           TURNSTILE_SECRET=${{ secrets.TURNSTILE_SECRET }}
           TURNSTILE_SITE_KEY=${{ secrets.TURNSTILE_SITE_KEY }}
@@ -124,7 +123,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
           if git ls-remote --heads origin demo | grep -q demo; then
             git checkout demo
             git merge main --no-edit -X theirs
@@ -153,7 +151,7 @@ jobs:
 
       - name: Create demo config
         run: |
-          cat > wrangler.toml << 'EOF'
+          cat > wrangler.toml <<EOF
           name = "iodrive-demo"
           main = "src/index.ts"
           compatibility_date = "2024-12-01"
@@ -166,7 +164,6 @@ jobs:
           R2_BUCKET = "iodrive-demo"
           R2_ACCOUNT_ID = "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
           TURNSTILE_SITE_KEY = "${{ secrets.TURNSTILE_SITE_KEY }}"
-
           S3_ENDPOINT = "${{ secrets.S3_ENDPOINT }}"
           S3_BUCKET = "${{ secrets.S3_BUCKET }}"
           S3_REGION = "${{ secrets.S3_REGION }}"
@@ -183,7 +180,7 @@ jobs:
 
       - name: Create secrets file
         run: |
-          cat > .dev.vars << 'EOF'
+          cat > .dev.vars <<EOF
           ADMIN_PASS=${{ secrets.ADMIN_PASS }}
           TURNSTILE_SECRET=${{ secrets.TURNSTILE_SECRET }}
           TURNSTILE_SITE_KEY=${{ secrets.TURNSTILE_SITE_KEY }}
@@ -199,7 +196,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --config wrangler.toml
+          command: deploy
 
       - name: Success
         run: echo "✅ https://demo.iodevo.com"
