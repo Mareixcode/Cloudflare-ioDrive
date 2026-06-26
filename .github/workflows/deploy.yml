@@ -11,7 +11,7 @@ on:
       - demo
 
 jobs:
-  sync-demo:
+  lint-and-ty  sync-demo:
     name: Sync main to demo
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
