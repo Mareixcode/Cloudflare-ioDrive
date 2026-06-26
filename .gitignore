@@ -11,7 +11,7 @@ wrangler.demo.toml
 .dev.vars
 
 # GitHub
-.github/
+# .github/  # 允许提交 CI/CD 配置
 
 # Claude
 CLAUDE.md
