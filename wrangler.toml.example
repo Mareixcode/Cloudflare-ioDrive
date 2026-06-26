@@ -1,13 +1,17 @@
+# ioDrive 配置模板
+# 复制此文件为 wrangler.toml 并填入真实值
+
 name = "iodrive"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
+account_id = "YOUR_ACCOUNT_ID"
 routes = [{ pattern = "YOUR_DOMAIN/*", zone_name = "YOUR_ZONE" }]
 
 [vars]
 ADMIN_USER = "admin"
-R2_PUBLIC_DOMAIN = "YOUR_R2_PUBLIC_DOMAIN"
+R2_PUBLIC_DOMAIN = "YOUR_R2_DOMAIN"
 R2_BUCKET = "YOUR_R2_BUCKET"
-R2_ACCOUNT_ID = "YOUR_R2_ACCOUNT_ID"
+R2_ACCOUNT_ID = "YOUR_ACCOUNT_ID"
 TURNSTILE_SITE_KEY = "YOUR_TURNSTILE_SITE_KEY"
 
 S3_ENDPOINT = "YOUR_S3_ENDPOINT"

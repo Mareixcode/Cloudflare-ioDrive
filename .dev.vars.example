@@ -1,0 +1,21 @@
+# 环境变量配置示例
+# 复制此文件为 .dev.vars 并填入真实值
+# 生产环境使用 GitHub Secrets 注入
+
+# 管理员密码
+ADMIN_PASS=your_admin_password
+
+# Cloudflare Turnstile
+TURNSTILE_SECRET=your_turnstile_secret
+TURNSTILE_SITE_KEY=your_turnstile_site_key
+
+# JWT 密钥
+JWT_SECRET=your_jwt_secret
+
+# R2 存储访问密钥
+R2_ACCESS_KEY=your_r2_access_key
+R2_SECRET_KEY=your_r2_secret_key
+
+# S3 存储访问密钥
+S3_ACCESS_KEY=your_s3_access_key
+S3_SECRET_KEY=your_s3_secret_key

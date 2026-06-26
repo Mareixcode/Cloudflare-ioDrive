@@ -10,11 +10,5 @@ wrangler.demo.toml
 .env
 .dev.vars
 
-# GitHub
-# .github/  # 允许提交 CI/CD 配置
-
 # Claude
 CLAUDE.md
-
-# TOML
-*.toml
