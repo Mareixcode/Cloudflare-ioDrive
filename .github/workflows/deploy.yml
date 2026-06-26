@@ -174,7 +174,7 @@ jobs:
 
       - name: Create secrets file
         run: |
-          cat > .dev.vars <<EOF
+          cat > .dev.vars <<'EOF'
           ADMIN_PASS=${{ secrets.ADMIN_PASS }}
           TURNSTILE_SECRET=${{ secrets.TURNSTILE_SECRET }}
           TURNSTILE_SITE_KEY=${{ secrets.TURNSTILE_SITE_KEY }}
