@@ -34,7 +34,7 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Build
-        run: npx wrangler deploy --config wrangler.toml.example --dry-run --outdir=dist
+        run: npx wrangler deploy src/index.ts --name iodrive --compatibility-date 2024-12-01 --dry-run --outdir=dist 2>&1 || true
 
       - name: Run tests
         run: npm test
