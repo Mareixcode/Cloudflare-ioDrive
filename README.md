@@ -935,22 +935,28 @@ npm run deploy
 
 > ⚠️ **前置步骤**：使用此方式前，你须先 **Fork 本仓库** 到你的 GitHub 账号下。否则将无权配置 Secrets，无法触发自动部署。
 
-项目已配置 CI/CD 流水线（`.github/workflows/ci.yml`）：
+项目已配置 CI/CD 流水线（`.github/workflows/deploy.yml`）：
 
-- **推送到 `main` 分支** → 自动部署到生产环境
-- **推送到 `demo` 分支** → 自动部署到演示环境
-- **创建 PR 到 `main`** → 自动运行类型检查
+- **推送到 `main` 分支** → 自动部署到生产环境（drive.iodevo.com）
+- **推送到 `demo` 分支** → 自动部署到演示环境（demo.iodevo.com）
+- **创建 PR 到 `main` 或 `demo`** → 自动运行类型检查和测试
 
 #### 配置 GitHub Actions
 
-1. Fork 本仓库后，在你自己的仓库中进入 **Settings** → **Secrets and variables** → **Actions**，添加以下 Secret：
+1. Fork 本仓库后，在你自己的仓库中进入 **Settings** → **Secrets and variables** → **Actions**，添加以下 Secrets：
    
    - `CLOUDFLARE_API_TOKEN`：Cloudflare API 令牌（需要有 Workers 部署权限）
+   - `CLOUDFLARE_ACCOUNT_ID`：你的 Cloudflare 账户 ID
+
 2. 创建 Cloudflare API Token：
    
    - 进入 [Cloudflare Dashboard](https://dash.cloudflare.com/) → **我的个人资料** → **API 令牌**
    - 创建令牌 → 使用「编辑 Cloudflare Workers」模板
    - 选择你的账户和区域
+
+3. 获取 Cloudflare Account ID：
+   
+   - 进入 [Cloudflare Dashboard](https://dash.cloudflare.com/) → 选择你的域名 → **概览** 页面右侧可以看到 **账户 ID**
 
 ### 部署后检查
 

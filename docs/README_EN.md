@@ -935,22 +935,28 @@ npm run deploy
 
 > ⚠️ **Prerequisite**: Before using this method, you must **Fork this repository** to your GitHub account. Otherwise, you won't have permission to configure Secrets and trigger automatic deployments.
 
-The project includes a CI/CD pipeline (`.github/workflows/ci.yml`):
+The project includes a CI/CD pipeline (`.github/workflows/deploy.yml`):
 
-- **Push to `main` branch** → Auto-deploy to production
-- **Push to `demo` branch** → Auto-deploy to demo environment
-- **PR to `main`** → Auto-run type check
+- **Push to `main` branch** → Auto-deploy to production (drive.iodevo.com)
+- **Push to `demo` branch** → Auto-deploy to demo environment (demo.iodevo.com)
+- **PR to `main` or `demo`** → Auto-run type check and tests
 
 #### Configuring GitHub Actions
 
-1. After forking, in your own repository, go to **Settings** → **Secrets and variables** → **Actions**, add:
+1. After forking, in your own repository, go to **Settings** → **Secrets and variables** → **Actions**, add the following Secrets:
    
    - `CLOUDFLARE_API_TOKEN`: Cloudflare API token (needs Workers deploy permission)
+   - `CLOUDFLARE_ACCOUNT_ID`: Your Cloudflare account ID
+
 2. Create a Cloudflare API Token:
    
    - Go to [Cloudflare Dashboard](https://dash.cloudflare.com/) → **My Profile** → **API Tokens**
    - Create Token → Use "Edit Cloudflare Workers" template
    - Select your account and zone
+
+3. Get Cloudflare Account ID:
+   
+   - Go to [Cloudflare Dashboard](https://dash.cloudflare.com/) → Select your domain → **Overview** page, you can find the **Account ID** on the right side
 
 ### Demo Environment
 

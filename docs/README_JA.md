@@ -935,22 +935,28 @@ npm run deploy
 
 > ⚠️ **前提条件**：この方法を使用する前に、必ずこのリポジトリをあなたの GitHub アカウントに **Fork** してください。Fork しないと、Secrets の設定権限がなく、自動デプロイをトリガーできません。
 
-プロジェクトには CI/CD パイプライン（`.github/workflows/ci.yml`）が含まれています：
+プロジェクトには CI/CD パイプライン（`.github/workflows/deploy.yml`）が含まれています：
 
-- **`main` ブランチにプッシュ** → 本番環境に自動デプロイ
-- **`demo` ブランチにプッシュ** → デモ環境に自動デプロイ
-- **`main` への PR** → 自動で型チェックを実行
+- **`main` ブランチにプッシュ** → 本番環境に自動デプロイ（drive.iodevo.com）
+- **`demo` ブランチにプッシュ** → デモ環境に自動デプロイ（demo.iodevo.com）
+- **`main` または `demo` への PR** → 自動で型チェックとテストを実行
 
 #### GitHub Actions の設定
 
-1. Fork 後、自分のリポジトリで **Settings** → **Secrets and variables** → **Actions** に移動し、以下を追加：
+1. Fork 後、自分のリポジトリで **Settings** → **Secrets and variables** → **Actions** に移動し、以下の Secrets を追加：
    
    - `CLOUDFLARE_API_TOKEN`：Cloudflare API トークン（Workers デプロイ権限が必要）
+   - `CLOUDFLARE_ACCOUNT_ID`：あなたの Cloudflare アカウント ID
+
 2. Cloudflare API トークンの作成：
    
    - [Cloudflare ダッシュボード](https://dash.cloudflare.com/) → **マイプロフィール** → **API トークン**
    - トークンを作成 → 「Cloudflare Workers の編集」テンプレートを使用
    - アカウントとゾーンを選択
+
+3. Cloudflare Account ID の取得：
+   
+   - [Cloudflare ダッシュボード](https://dash.cloudflare.com/) → ドメインを選択 → **概要** ページの右側に **アカウント ID** があります
 
 ### デモ環境
 
