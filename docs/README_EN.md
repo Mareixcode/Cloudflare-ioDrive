@@ -63,6 +63,56 @@ ioDrive is a lightweight file management system that runs entirely on Cloudflare
 
 ---
 
+## 🚀 One-Click Deploy
+
+### Method 1: Setup Script (Recommended for Local Deploy)
+
+Interactive guided configuration, auto-generates config files, deploy with one command:
+
+```bash
+git clone https://github.com/Mareixcode/Cloudflare-Drive.git
+cd Cloudflare-Drive
+chmod +x setup.sh
+./setup.sh
+```
+
+The script automatically guides you through:
+- ✅ Checking prerequisites (Node.js, npm, wrangler)
+- ✅ Collecting Cloudflare account information
+- ✅ Configuring domain and R2 bucket
+- ✅ Setting up Turnstile CAPTCHA
+- ✅ Generating `wrangler.toml` and `.dev.vars`
+- ✅ Auto-creating R2 bucket and deploying
+
+### Method 2: GitHub Actions One-Click Deploy (Recommended for Continuous Deploy)
+
+> ⚠️ **Prerequisite**: You must first **[Fork this repository](https://github.com/Mareixcode/Cloudflare-Drive/fork)** to your GitHub account.
+
+**Step 1: Configure GitHub Secrets**
+
+Go to your repo → **Settings** → **Secrets and variables** → **Actions**, add the following Secrets:
+
+| Secret Name | Description | How to Get |
+|-------------|-------------|------------|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token | [Create Token](https://dash.cloudflare.com/profile/api-tokens) → Use "Edit Cloudflare Workers" template |
+| `CLOUDFLARE_ACCOUNT_ID` | Account ID | Dashboard homepage → Right side API section |
+| `ADMIN_PASS` | Admin password | Set your own |
+| `JWT_SECRET` | JWT signing key | Run `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `TURNSTILE_SECRET` | Turnstile secret | Turnstile → Your site → API keys |
+| `TURNSTILE_SITE_KEY` | Turnstile site key | Turnstile → Your site → Site key |
+| `R2_ACCESS_KEY` | R2 Access Key | R2 → Manage R2 API Tokens |
+| `R2_SECRET_KEY` | R2 Secret Key | Same as above |
+
+**Step 2: Trigger Deploy**
+
+Go to repo → **Actions** → **🚀 One-Click Deploy ioDrive** → **Run workflow**, fill in the configuration parameters and run.
+
+**Subsequent Updates**
+
+After configuration, every push to the `main` branch will automatically trigger deployment (via the existing `deploy.yml` workflow).
+
+---
+
 ## 📸 Screenshots
 
 ### Admin Dashboard

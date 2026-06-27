@@ -63,6 +63,56 @@ ioDrive 是一个完全运行在 Cloudflare 边缘网络上的轻量级文件管
 
 ---
 
+## 🚀 一键部署
+
+### 方式一：Setup 脚本（推荐本地部署）
+
+交互式引导配置，自动生成配置文件，一条命令完成部署：
+
+```bash
+git clone https://github.com/Mareixcode/Cloudflare-Drive.git
+cd Cloudflare-Drive
+chmod +x setup.sh
+./setup.sh
+```
+
+脚本会自动引导你完成：
+- ✅ 检查前置依赖（Node.js、npm、wrangler）
+- ✅ 收集 Cloudflare 账户信息
+- ✅ 配置域名和 R2 存储桶
+- ✅ 配置 Turnstile 人机验证
+- ✅ 生成 `wrangler.toml` 和 `.dev.vars`
+- ✅ 自动创建 R2 存储桶并部署
+
+### 方式二：GitHub Actions 一键部署（推荐持续部署）
+
+> ⚠️ 使用前须先 **[Fork 本仓库](https://github.com/Mareixcode/Cloudflare-Drive/fork)** 到你的 GitHub 账号
+
+**第一步：配置 GitHub Secrets**
+
+进入仓库 → **Settings** → **Secrets and variables** → **Actions**，添加以下 Secrets：
+
+| Secret 名称 | 说明 | 获取方式 |
+|-------------|------|----------|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API 令牌 | [创建令牌](https://dash.cloudflare.com/profile/api-tokens) → 使用「编辑 Cloudflare Workers」模板 |
+| `CLOUDFLARE_ACCOUNT_ID` | 账户 ID | Dashboard 首页 → 右侧 API 区域 |
+| `ADMIN_PASS` | 管理员密码 | 自行设置 |
+| `JWT_SECRET` | JWT 签名密钥 | 运行 `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `TURNSTILE_SECRET` | Turnstile 密钥 | Turnstile → 你的站点 → API 密钥 |
+| `TURNSTILE_SITE_KEY` | Turnstile 站点密钥 | Turnstile → 你的站点 → 站点密钥 |
+| `R2_ACCESS_KEY` | R2 Access Key | R2 → 管理 R2 API 令牌 |
+| `R2_SECRET_KEY` | R2 Secret Key | 同上 |
+
+**第二步：触发部署**
+
+进入仓库 → **Actions** → **🚀 一键部署 ioDrive** → **Run workflow**，填写配置参数后点击运行。
+
+**后续更新**
+
+配置完成后，每次推送到 `main` 分支都会自动触发部署（通过已有的 `deploy.yml` 工作流）。
+
+---
+
 ## 📸 项目截图
 
 ### 管理后台

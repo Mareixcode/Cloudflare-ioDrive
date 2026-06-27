@@ -1,0 +1,208 @@
+# ============================================================
+#  ioDrive 一键部署工作流
+#  Fork 后配置 Secrets，点击「Run workflow」即可部署
+# ============================================================
+name: 🚀 一键部署 ioDrive
+
+on:
+  workflow_dispatch:
+    inputs:
+      worker_name:
+        description: 'Worker 名称'
+        required: true
+        default: 'iodrive'
+      domain:
+        description: '你的域名 (例: example.com)'
+        required: true
+      route_prefix:
+        description: '路由前缀 (例: drive，最终访问 drive.example.com)'
+        required: true
+        default: 'drive'
+      r2_bucket:
+        description: 'R2 存储桶名称 (留空则使用 Worker 名称)'
+        required: false
+      r2_public_domain:
+        description: 'R2 公开访问域名 (例: r2.example.com)'
+        required: true
+      admin_user:
+        description: '管理员用户名'
+        required: true
+        default: 'admin'
+      enable_s3:
+        description: '是否启用 S3 同步 (true/false)'
+        required: false
+        default: 'false'
+      s3_endpoint:
+        description: 'S3 端点 (仅启用 S3 时填写)'
+        required: false
+      s3_bucket:
+        description: 'S3 存储桶 (仅启用 S3 时填写)'
+        required: false
+      s3_region:
+        description: 'S3 区域 (仅启用 S3 时填写)'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: 验证配置
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检查必需的 Secrets
+        run: |
+          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
+            echo "❌ 缺少 Secret: CLOUDFLARE_API_TOKEN"
+            echo "请在仓库 Settings → Secrets and variables → Actions 中添加"
+            exit 1
+          fi
+          if [ -z "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ]; then
+            echo "❌ 缺少 Secret: CLOUDFLARE_ACCOUNT_ID"
+            exit 1
+          fi
+          if [ -z "${{ secrets.ADMIN_PASS }}" ]; then
+            echo "❌ 缺少 Secret: ADMIN_PASS"
+            exit 1
+          fi
+          if [ -z "${{ secrets.JWT_SECRET }}" ]; then
+            echo "❌ 缺少 Secret: JWT_SECRET"
+            exit 1
+          fi
+          if [ -z "${{ secrets.TURNSTILE_SECRET }}" ]; then
+            echo "❌ 缺少 Secret: TURNSTILE_SECRET"
+            exit 1
+          fi
+          if [ -z "${{ secrets.R2_ACCESS_KEY }}" ]; then
+            echo "❌ 缺少 Secret: R2_ACCESS_KEY"
+            exit 1
+          fi
+          if [ -z "${{ secrets.R2_SECRET_KEY }}" ]; then
+            echo "❌ 缺少 Secret: R2_SECRET_KEY"
+            exit 1
+          fi
+          echo "✅ 所有必需的 Secrets 已配置"
+
+      - name: 验证输入参数
+        run: |
+          if [ -z "${{ inputs.domain }}" ]; then
+            echo "❌ 域名不能为空"
+            exit 1
+          fi
+          if [ -z "${{ inputs.r2_public_domain }}" ]; then
+            echo "❌ R2 公开域名不能为空"
+            exit 1
+          fi
+          echo "✅ 输入参数验证通过"
+
+  deploy:
+    name: 部署到 Cloudflare
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout 代码
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 确定 R2 存储桶名称
+        id: r2
+        run: |
+          if [ -n "${{ inputs.r2_bucket }}" ]; then
+            echo "bucket=${{ inputs.r2_bucket }}" >> $GITHUB_OUTPUT
+          else
+            echo "bucket=${{ inputs.worker_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 生成 wrangler.toml
+        run: |
+          cat > wrangler.toml <<EOF
+          name = "${{ inputs.worker_name }}"
+          main = "src/index.ts"
+          compatibility_date = "2024-12-01"
+          account_id = "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
+          routes = [{ pattern = "${{ inputs.route_prefix }}.${{ inputs.domain }}/*", zone_name = "${{ inputs.domain }}" }]
+
+          [vars]
+          ADMIN_USER = "${{ inputs.admin_user }}"
+          R2_PUBLIC_DOMAIN = "${{ inputs.r2_public_domain }}"
+          R2_BUCKET = "${{ steps.r2.outputs.bucket }}"
+          R2_ACCOUNT_ID = "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
+          TURNSTILE_SITE_KEY = "${{ secrets.TURNSTILE_SITE_KEY }}"
+          PUBLIC_UPLOAD_PATH = "uploads/public/"
+          EOF
+
+          # 追加 S3 配置（如果启用）
+          if [ "${{ inputs.enable_s3 }}" = "true" ]; then
+            cat >> wrangler.toml <<EOF
+          S3_ENDPOINT = "${{ inputs.s3_endpoint }}"
+          S3_BUCKET = "${{ inputs.s3_bucket }}"
+          S3_REGION = "${{ inputs.s3_region }}"
+          EOF
+          fi
+
+          # 追加 R2 绑定和日志
+          cat >> wrangler.toml <<EOF
+
+          [[r2_buckets]]
+          binding = "DRIVE"
+          bucket_name = "${{ steps.r2.outputs.bucket }}"
+
+          [observability.logs]
+          enabled = true
+          invocation_logs = true
+          EOF
+
+          echo "✅ wrangler.toml 已生成"
+          cat wrangler.toml
+
+      - name: 创建 R2 存储桶
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          echo "正在创建 R2 存储桶: ${{ steps.r2.outputs.bucket }}"
+          npx wrangler r2 bucket create "${{ steps.r2.outputs.bucket }}" 2>/dev/null || echo "存储桶可能已存在，继续部署"
+
+      - name: 配置密钥
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          echo "${{ secrets.ADMIN_PASS }}"       | npx wrangler secret put ADMIN_PASS
+          echo "${{ secrets.JWT_SECRET }}"        | npx wrangler secret put JWT_SECRET
+          echo "${{ secrets.TURNSTILE_SECRET }}"  | npx wrangler secret put TURNSTILE_SECRET
+          echo "${{ secrets.R2_ACCESS_KEY }}"     | npx wrangler secret put R2_ACCESS_KEY
+          echo "${{ secrets.R2_SECRET_KEY }}"     | npx wrangler secret put R2_SECRET_KEY
+
+          if [ "${{ inputs.enable_s3 }}" = "true" ]; then
+            echo "${{ secrets.S3_ACCESS_KEY }}" | npx wrangler secret put S3_ACCESS_KEY
+            echo "${{ secrets.S3_SECRET_KEY }}" | npx wrangler secret put S3_SECRET_KEY
+          fi
+
+          echo "✅ 密钥配置完成"
+
+      - name: 部署 Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler deploy
+
+      - name: 部署成功
+        run: |
+          echo ""
+          echo "╔══════════════════════════════════════════╗"
+          echo "║           🎉 部署成功！                  ║"
+          echo "╚══════════════════════════════════════════╝"
+          echo ""
+          echo "访问地址: https://${{ inputs.route_prefix }}.${{ inputs.domain }}"
+          echo "管理员: ${{ inputs.admin_user }}"
+          echo ""
+          echo "请确保："
+          echo "  1. 域名 DNS 已配置到 Cloudflare"
+          echo "  2. R2 存储桶已开启公开访问"
+          echo "  3. Turnstile 站点已创建"
