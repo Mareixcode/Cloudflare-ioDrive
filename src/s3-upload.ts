@@ -6,6 +6,24 @@ export interface S3Config {
   region: string;
   accessKey: string;
   secretKey: string;
+  pathStyle?: boolean;  // true: endpoint/bucket/key, false: bucket.endpoint/key (默认)
+}
+
+// ── URL 构造辅助 ─────────────────────────────
+
+/** 根据 pathStyle 构造请求 URL */
+function buildS3Url(cfg: S3Config, key: string): { host: string; url: string; path: string } {
+  const encoded = '/' + encodeURIComponent(key).replace(/%2F/g, '/');
+  if (cfg.pathStyle) {
+    // path-style: https://endpoint/bucket/key
+    const host = cfg.endpoint;
+    const path = '/' + cfg.bucket + encoded;
+    return { host, url: `https://${host}${path}`, path };
+  } else {
+    // virtual-hosted: https://bucket.endpoint/key
+    const host = `${cfg.bucket}.${cfg.endpoint}`;
+    return { host, url: `https://${host}${encoded}`, path: encoded };
+  }
 }
 
 // ── Single file upload ────────────────────
@@ -16,8 +34,7 @@ export async function s3PutObject(
   body: ReadableStream | ArrayBuffer | Uint8Array | string,
   contentType: string,
 ): Promise<boolean> {
-  const host = `${cfg.bucket}.${cfg.endpoint}`;
-  const path = '/' + encodeURIComponent(key).replace(/%2F/g, '/');
+  const { host, url, path } = buildS3Url(cfg, key);
   const headers: Record<string, string> = {
     'Host': host,
     'Content-Type': contentType,
@@ -28,7 +45,7 @@ export async function s3PutObject(
   const authHeader = await signRequest(cfg, 'PUT', path, headers, 'UNSIGNED-PAYLOAD');
   headers['Authorization'] = authHeader;
 
-  const res = await fetch(`https://${host}${path}`, {
+  const res = await fetch(url, {
     method: 'PUT',
     headers,
     body,
@@ -49,8 +66,10 @@ export async function s3CreateMultipart(
   key: string,
   contentType: string,
 ): Promise<string | null> {
-  const host = `${cfg.bucket}.${cfg.endpoint}`;
-  const path = '/' + encodeURIComponent(key).replace(/%2F/g, '/') + '?uploads';
+  const { host, url, path } = buildS3Url(cfg, key);
+  const qs = 'uploads';
+  const fullPath = path + '?' + qs;
+  const fullUrl = url + '?uploads';
   const headers: Record<string, string> = {
     'Host': host,
     'Content-Type': contentType,
@@ -58,9 +77,9 @@ export async function s3CreateMultipart(
     'x-amz-date': amzDate(),
   };
 
-  headers['Authorization'] = await signRequest(cfg, 'POST', path, headers, 'UNSIGNED-PAYLOAD');
+  headers['Authorization'] = await signRequest(cfg, 'POST', fullPath, headers, 'UNSIGNED-PAYLOAD');
 
-  const res = await fetch(`https://${host}${path}`, { method: 'POST', headers });
+  const res = await fetch(fullUrl, { method: 'POST', headers });
   if (!res.ok) return null;
 
   const xml = await res.text();
@@ -75,18 +94,19 @@ export async function s3UploadPart(
   partNumber: number,
   body: ReadableStream | ArrayBuffer | Uint8Array,
 ): Promise<string | null> {
-  const host = `${cfg.bucket}.${cfg.endpoint}`;
-  const path = '/' + encodeURIComponent(key).replace(/%2F/g, '/') +
-    `?partNumber=${partNumber}&uploadId=${encodeURIComponent(uploadId)}`;
+  const { host, url, path } = buildS3Url(cfg, key);
+  const qs = `partNumber=${partNumber}&uploadId=${encodeURIComponent(uploadId)}`;
+  const fullPath = path + '?' + qs;
+  const fullUrl = url + '?' + qs;
   const headers: Record<string, string> = {
     'Host': host,
     'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
     'x-amz-date': amzDate(),
   };
 
-  headers['Authorization'] = await signRequest(cfg, 'PUT', path, headers, 'UNSIGNED-PAYLOAD');
+  headers['Authorization'] = await signRequest(cfg, 'PUT', fullPath, headers, 'UNSIGNED-PAYLOAD');
 
-  const res = await fetch(`https://${host}${path}`, { method: 'PUT', headers, body });
+  const res = await fetch(fullUrl, { method: 'PUT', headers, body });
   if (!res.ok) return null;
 
   return res.headers.get('etag');
@@ -98,9 +118,10 @@ export async function s3CompleteMultipart(
   uploadId: string,
   parts: { partNumber: number; etag: string }[],
 ): Promise<boolean> {
-  const host = `${cfg.bucket}.${cfg.endpoint}`;
-  const path = '/' + encodeURIComponent(key).replace(/%2F/g, '/') +
-    `?uploadId=${encodeURIComponent(uploadId)}`;
+  const { host, url, path } = buildS3Url(cfg, key);
+  const qs = `uploadId=${encodeURIComponent(uploadId)}`;
+  const fullPath = path + '?' + qs;
+  const fullUrl = url + '?' + qs;
 
   const xmlParts = parts
     .sort((a, b) => a.partNumber - b.partNumber)
@@ -116,9 +137,9 @@ export async function s3CompleteMultipart(
     'x-amz-date': amzDate(),
   };
 
-  headers['Authorization'] = await signRequest(cfg, 'POST', path, headers, headers['x-amz-content-sha256']);
+  headers['Authorization'] = await signRequest(cfg, 'POST', fullPath, headers, headers['x-amz-content-sha256']);
 
-  const res = await fetch(`https://${host}${path}`, { method: 'POST', headers, body });
+  const res = await fetch(fullUrl, { method: 'POST', headers, body });
   return res.ok;
 }
 

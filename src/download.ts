@@ -3,6 +3,7 @@ import type { Env, DownloadLogEntry } from './types';
 import { jwtAuth } from './auth';
 import { parseUA } from './ua-parser';
 import { verifyTurnstile } from './turnstile';
+import { getAllS3Configs, detectPathStyle } from './storage';
 
 export const downloadRoutes = new Hono<{ Bindings: Env }>();
 
@@ -144,15 +145,22 @@ downloadRoutes.post('/token', async (c) => {
   }
   if (!r2Url) return c.json({ error: '生成下载链接失败' }, 500);
 
-  // S3 presigned URL
-  let s3Url: string | null = null;
+  // S3 presigned URL (支持多后端 + path-style)
+  const s3Urls: { name: string; url: string }[] = [];
   try {
-    if (c.env.S3_ENDPOINT && c.env.S3_BUCKET && c.env.S3_REGION && c.env.S3_ACCESS_KEY && c.env.S3_SECRET_KEY) {
-      s3Url = await generatePresignedUrl(
-        c.env.S3_ENDPOINT, c.env.S3_BUCKET, c.env.S3_REGION,
-        c.env.S3_ACCESS_KEY, c.env.S3_SECRET_KEY,
-        record.key, 300, record.name,
-      );
+    const s3Configs = getAllS3Configs(c.env);
+    for (const cfg of s3Configs) {
+      try {
+        const url = await generatePresignedUrl(
+          cfg.endpoint, cfg.bucket, cfg.region,
+          cfg.accessKey, cfg.secretKey,
+          record.key, 300, record.name,
+          cfg.pathStyle,
+        );
+        s3Urls.push({ name: cfg.bucket, url });
+      } catch (e) {
+        console.error(`S3 presign error (${cfg.bucket}):`, e);
+      }
     }
   } catch (e) {
     console.error('S3 presign error:', e);
@@ -170,7 +178,7 @@ downloadRoutes.post('/token', async (c) => {
     country: c.req.header('CF-IPCountry') || '',
     ua,
     shareToken,
-    source: s3Url ? 'r2+s3' : 'r2',
+    source: s3Urls.length > 0 ? 'r2+s3' : 'r2',
     referer: c.req.header('Referer') || '',
     browser: parsed.browser,
     os: parsed.os,
@@ -180,7 +188,9 @@ downloadRoutes.post('/token', async (c) => {
   const logKey = '_dl_logs/' + logId + '.json';
   await c.env.DRIVE.put(logKey, JSON.stringify(logEntry), { httpMetadata: { contentType: 'application/json' } });
 
-  return c.json({ r2Url, s3Url, logKey, name: record.name, size: head.size });
+  // 返回：单个 s3Url（向后兼容）+ s3Urls 数组（多后端）
+  const s3Url = s3Urls.length > 0 ? s3Urls[0].url : null;
+  return c.json({ r2Url, s3Url, s3Urls, logKey, name: record.name, size: head.size });
 });
 
 // ── Beacon: update download completion status ──
@@ -215,14 +225,23 @@ async function generatePresignedUrl(
   key: string,
   expiresIn: number,
   filename: string,
+  pathStyle?: boolean,
 ): Promise<string> {
   const now = new Date();
   const dateStamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, '').slice(0, 8);
   const amzDate = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, '') + 'Z';
-  const host = bucket + '.' + endpoint;
+
+  // 根据 pathStyle 构造 host 和 encodedKey
+  const encodedKey = '/' + encodeURIComponent(key).replace(/%2F/g, '/');
+  let host: string;
+  if (pathStyle) {
+    host = endpoint;
+  } else {
+    host = bucket + '.' + endpoint;
+  }
+
   const credentialScope = dateStamp + '/' + region + '/s3/aws4_request';
   const credential = accessKey + '/' + credentialScope;
-  const encodedKey = '/' + encodeURIComponent(key).replace(/%2F/g, '/');
 
   const rawParams: [string, string][] = [
     ['X-Amz-Algorithm', 'AWS4-HMAC-SHA256'],
@@ -234,12 +253,19 @@ async function generatePresignedUrl(
   rawParams.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
 
   const canonicalQS = rawParams.map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v)).join('&');
-  const canonicalRequest = ['GET', encodedKey, canonicalQS, 'host:' + host + '\n', 'host', 'UNSIGNED-PAYLOAD'].join('\n');
+
+  // path-style 时 canonicalUri 包含 bucket 前缀
+  const canonicalUri = pathStyle ? '/' + bucket + encodedKey : encodedKey;
+
+  const canonicalRequest = ['GET', canonicalUri, canonicalQS, 'host:' + host + '\n', 'host', 'UNSIGNED-PAYLOAD'].join('\n');
   const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credentialScope, await sha256Hex(canonicalRequest)].join('\n');
   const signingKey = await getSigningKey(secretKey, dateStamp, region, 's3');
   const signature = await hmacHex(signingKey, stringToSign);
   const urlParams = rawParams.map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v)).join('&');
-  return 'https://' + host + encodedKey + '?' + urlParams + '&X-Amz-Signature=' + signature;
+
+  // 最终 URL
+  const urlPath = pathStyle ? '/' + bucket + encodedKey : encodedKey;
+  return 'https://' + host + urlPath + '?' + urlParams + '&X-Amz-Signature=' + signature;
 }
 
 async function sha256Hex(data: string): Promise<string> {

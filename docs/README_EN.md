@@ -233,12 +233,27 @@ Every upload is logged in detail:
 | Upload Source | `dashboard` / `public` / `upload-key` |
 | Upload Key Label | Which upload link was used |
 
-### ☁️ Dual Storage Support
+### ☁️ Multi-Backend Storage
 
-- **Cloudflare R2** (Primary): Zero egress fees
-- **Optional S3 Sync**: Write files to both R2 and S3-compatible storage simultaneously
-- **Supported S3-Compatible Platforms**: AWS S3, Cloudflare R2 (via S3 API), MinIO, Backblaze B2, Tencent COS, Alibaba OSS, etc.
-- **Dual-Channel Downloads**: Share pages offer both R2 and S3 presigned download links
+- **Cloudflare R2** (Recommended): Zero egress fees, native Cloudflare storage
+- **Multiple S3-Compatible Backends**: Configure multiple S3-compatible storage providers simultaneously, auto-sync on upload
+- **Automatic Path-Style Detection**: Automatically selects virtual-hosted or path-style based on the storage provider
+- **Supported Storage Platforms**:
+
+| Provider | Identifier | Description |
+|----------|------------|-------------|
+| Cloudflare R2 | `r2` | Zero egress fees (recommended) |
+| AWS S3 | `aws` | Amazon object storage |
+| Backblaze B2 | `b2` | Low-cost cloud storage |
+| MinIO | `minio` | Self-hosted S3-compatible |
+| Alibaba Cloud OSS | `alibaba` | Major Chinese cloud storage |
+| Tencent Cloud COS | `tencent` | Major Chinese cloud storage |
+| Wasabi | `wasabi` | Unlimited free egress |
+| DigitalOcean Spaces | `digitalocean` | Developer-friendly storage |
+| Volcengine TOS | `volcengine` | ByteDance cloud storage |
+| Custom | `custom` | Any S3-compatible service |
+
+- **Dual-Channel Downloads**: Share pages offer presigned download links from all configured backends
 
 ### 🌙 User Experience
 

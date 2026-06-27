@@ -233,12 +233,27 @@ chmod +x setup.sh
 | 上传来源 | `dashboard` / `public` / `upload-key` |
 | 上传链接标签 | 通过哪个上传链接上传 |
 
-### ☁️ 双存储支持
+### ☁️ 多存储后端
 
-- **Cloudflare R2**（主存储）：零出口流量费
-- **可选 S3 同步**：上传文件同时写入 R2 和 S3 兼容存储
-- **支持的 S3 兼容平台**：AWS S3、Cloudflare R2（通过 S3 API）、MinIO、Backblaze B2、腾讯云 COS、阿里云 OSS 等
-- **双通道下载**：分享页面同时提供 R2 和 S3 的预签名下载链接
+- **Cloudflare R2**（推荐）：零出口流量费，Cloudflare 原生存储
+- **多 S3 兼容后端**：可同时配置多个 S3 兼容存储，上传自动同步
+- **路径风格自动检测**：根据存储提供商自动选择 virtual-hosted 或 path-style
+- **支持的存储平台**：
+
+| 提供商 | 标识 | 说明 |
+|--------|------|------|
+| Cloudflare R2 | `r2` | 零出口流量费（推荐） |
+| AWS S3 | `aws` | Amazon 对象存储 |
+| Backblaze B2 | `b2` | 低成本云存储 |
+| MinIO | `minio` | 自建 S3 兼容存储 |
+| 阿里云 OSS | `alibaba` | 国内主流云存储 |
+| 腾讯云 COS | `tencent` | 国内主流云存储 |
+| Wasabi | `wasabi` | 无限免费出口流量 |
+| DigitalOcean Spaces | `digitalocean` | 开发者友好的云存储 |
+| 火山引擎 TOS | `volcengine` | 字节跳动云存储 |
+| 自定义 | `custom` | 任意 S3 兼容服务 |
+
+- **双通道下载**：分享页面同时提供所有后端的预签名下载链接
 
 ### 🌙 用户体验
 
@@ -540,11 +555,13 @@ npm run deploy
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `S3_ENDPOINT` | S3 兼容存储端点 | - |
-| `S3_BUCKET` | S3 存储桶名称 | - |
-| `S3_REGION` | S3 区域 | - |
-| `S3_ACCESS_KEY` | S3 Access Key（密钥） | - |
-| `S3_SECRET_KEY` | S3 Secret Key（密钥） | - |
+| `STORAGE_CONFIG` | 多后端存储配置（JSON 数组） | - |
+| `S3_CREDENTIALS` | 多后端存储密钥（JSON 对象，通过 wrangler secret 设置） | - |
+| `S3_ENDPOINT` | 单个 S3 端点（向后兼容，推荐使用 STORAGE_CONFIG） | - |
+| `S3_BUCKET` | S3 存储桶名称（向后兼容） | - |
+| `S3_REGION` | S3 区域（向后兼容） | - |
+| `S3_ACCESS_KEY` | S3 Access Key（向后兼容） | - |
+| `S3_SECRET_KEY` | S3 Secret Key（向后兼容） | - |
 | `PUBLIC_UPLOAD_PATH` | 公共上传默认路径 | `uploads/public/` |
 
 ### 路由配置

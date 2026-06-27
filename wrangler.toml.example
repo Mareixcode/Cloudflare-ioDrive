@@ -6,16 +6,35 @@ routes = [{ pattern = "YOUR_DOMAIN/*", zone_name = "YOUR_ZONE" }]
 
 [vars]
 ADMIN_USER = "admin"
+TURNSTILE_SITE_KEY = "YOUR_TURNSTILE_SITE_KEY"
+PUBLIC_UPLOAD_PATH = "uploads/public/"
+
+# ── R2 存储（可选，Cloudflare 原生存储，零出口流量费） ──
+# 如不使用 R2，请删除下方 R2_PUBLIC_DOMAIN / R2_BUCKET / R2_ACCOUNT_ID 和 [[r2_buckets]] 部分
 R2_PUBLIC_DOMAIN = "YOUR_R2_DOMAIN"
 R2_BUCKET = "YOUR_R2_BUCKET"
 R2_ACCOUNT_ID = "YOUR_ACCOUNT_ID"
-TURNSTILE_SITE_KEY = "YOUR_TURNSTILE_SITE_KEY"
 
-S3_ENDPOINT = "YOUR_S3_ENDPOINT"
-S3_BUCKET = "YOUR_S3_BUCKET"
-S3_REGION = "YOUR_S3_REGION"
-PUBLIC_UPLOAD_PATH = "uploads/public/"
+# ── 多后端存储配置（可选） ──────────────────────────────
+# 支持同时配置多个 S3 兼容存储后端，格式为 JSON 数组
+# 每个后端包含：name(名称) / provider(提供商) / endpoint / bucket / region / sync(是否同步写入)
+# 路径风格(pathStyle)会根据 provider 和 endpoint 自动检测，也可手动指定
+#
+# 支持的 provider:
+#   aws          - AWS S3
+#   r2           - Cloudflare R2 (通过 S3 API)
+#   b2           - Backblaze B2
+#   minio        - MinIO (自建)
+#   alibaba      - 阿里云 OSS
+#   tencent      - 腾讯云 COS
+#   wasabi       - Wasabi
+#   digitalocean - DigitalOcean Spaces
+#   volcengine   - 火山引擎 TOS
+#   custom       - 自定义 S3 兼容
+#
+# STORAGE_CONFIG = '[{"name":"backup","provider":"aws","endpoint":"s3.amazonaws.com","bucket":"my-backup","region":"us-east-1","sync":true}]'
 
+# ── R2 存储桶绑定 ──────────────────────────────────────
 [[r2_buckets]]
 binding = "DRIVE"
 bucket_name = "YOUR_R2_BUCKET"
