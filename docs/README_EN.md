@@ -65,6 +65,46 @@ ioDrive is a lightweight file management system that runs entirely on Cloudflare
 
 ## 🚀 One-Click Deploy
 
+<p align="center">
+  <a href="https://github.com/Mareixcode/Cloudflare-Drive/fork">
+    <img src="https://img.shields.io/badge/⚡_Deploy_to_Cloudflare-F6821F?style=for-the-badge&logo=cloudflare&logoColor=white" alt="Deploy to Cloudflare" height="48">
+  </a>
+</p>
+
+> Cloudflare doesn't have a native Deploy Button like Vercel, so we use a **Fork → Configure → One-Click Deploy** workflow. Simply click the button above to fork the repo, then click "Run workflow" in the Actions tab to deploy.
+
+<details>
+<summary><b>📖 Full Deploy Guide (click to expand)</b></summary>
+
+### Step 1: Fork the Repository
+
+Click the **⚡ Deploy to Cloudflare** button above to fork the repository to your GitHub account.
+
+### Step 2: Configure GitHub Secrets
+
+Go to your forked repo → **Settings** → **Secrets and variables** → **Actions**, add the following Secrets:
+
+| Secret Name | Description | How to Get |
+|-------------|-------------|------------|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token | [Create Token](https://dash.cloudflare.com/profile/api-tokens) → Use "Edit Cloudflare Workers" template |
+| `CLOUDFLARE_ACCOUNT_ID` | Account ID | Dashboard homepage → Right side API section |
+| `ADMIN_PASS` | Admin password | Set your own |
+| `JWT_SECRET` | JWT signing key | Run `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `TURNSTILE_SECRET` | Turnstile secret | Turnstile → Your site → API keys |
+| `TURNSTILE_SITE_KEY` | Turnstile site key | Turnstile → Your site → Site key |
+| `R2_ACCESS_KEY` | R2 Access Key | R2 → Manage R2 API Tokens |
+| `R2_SECRET_KEY` | R2 Secret Key | Same as above |
+
+### Step 3: One-Click Deploy
+
+Go to repo → **Actions** → **🚀 One-Click Deploy ioDrive** → **Run workflow**, fill in the configuration parameters and run.
+
+### Subsequent Updates
+
+After configuration, every push to the `main` branch will automatically trigger deployment (via the `deploy.yml` workflow).
+
+</details>
+
 ### Method 1: Setup Script (Recommended for Local Deploy)
 
 Interactive guided configuration, auto-generates config files, deploy with one command:
