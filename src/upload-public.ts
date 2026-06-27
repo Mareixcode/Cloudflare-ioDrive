@@ -4,12 +4,12 @@ import { verifyTurnstile } from './turnstile';
 import { s3PutObject, s3CreateMultipart, s3UploadPart, s3CompleteMultipart } from './s3-upload';
 import { getContentType, uniqueKey } from './upload-utils';
 import { writeUploadLog } from './upload-logs';
+import { getAllS3ConfigsAsync } from './storage';
 
 export const uploadPublicRoutes = new Hono<{ Bindings: Env }>();
 
-function getS3Cfg(env: Env) {
-  if (!env.S3_ENDPOINT || !env.S3_BUCKET || !env.S3_REGION || !env.S3_ACCESS_KEY || !env.S3_SECRET_KEY) return null;
-  return { endpoint: env.S3_ENDPOINT, bucket: env.S3_BUCKET, region: env.S3_REGION, accessKey: env.S3_ACCESS_KEY, secretKey: env.S3_SECRET_KEY };
+async function getS3Cfgs(env: Env, drive: R2Bucket) {
+  return getAllS3ConfigsAsync(env, drive);
 }
 
 function getPublicUploadPath(env: Env): string {
@@ -105,11 +105,11 @@ uploadPublicRoutes.post('/single', async (c) => {
     customMetadata: { originalName: file.name, uploadedAt: new Date().toISOString() },
   });
 
-  // S3 upload
-  const s3cfg = getS3Cfg(c.env);
+  // S3 upload (all backends)
+  const s3Cfgs = await getS3Cfgs(c.env, c.env.DRIVE);
   let s3Ok = false;
-  if (s3cfg) {
-    try { s3Ok = await s3PutObject(s3cfg, key2, buf, contentType); } catch (e) { console.error('S3 upload error:', e); }
+  for (const s3cfg of s3Cfgs) {
+    try { const ok = await s3PutObject(s3cfg, key2, buf, contentType); if (ok) s3Ok = true; } catch (e) { console.error('S3 upload error:', e); }
   }
 
   // Log upload
@@ -166,21 +166,22 @@ uploadPublicRoutes.post('/init', async (c) => {
   // R2 init
   const r2mp = await c.env.DRIVE.createMultipartUpload(key2, { httpMetadata: { contentType: ct } });
 
-  // S3 init
-  const s3cfg = getS3Cfg(c.env);
-  let s3UploadId: string | null = null;
-  if (s3cfg) {
-    s3UploadId = await s3CreateMultipart(s3cfg, key2, ct);
-    if (s3UploadId) {
-      await c.env.DRIVE.put('_s3/' + r2mp.uploadId + '.json', JSON.stringify({
-        s3UploadId,
-        key: key2,
-        filename,
-        uploadKeyId,
-        uploadKeyLabel: keyLabel,
-        source: uploadKeyId ? 'upload-key' : 'public',
-      }));
-    }
+  // S3 init (all backends)
+  const s3Cfgs = await getS3Cfgs(c.env, c.env.DRIVE);
+  const s3UploadIds: Record<string, string> = {};
+  for (const s3cfg of s3Cfgs) {
+    const s3Uid = await s3CreateMultipart(s3cfg, key2, ct);
+    if (s3Uid) s3UploadIds[s3cfg.bucket] = s3Uid;
+  }
+  if (Object.keys(s3UploadIds).length > 0) {
+    await c.env.DRIVE.put('_s3/' + r2mp.uploadId + '.json', JSON.stringify({
+      s3UploadIds,
+      key: key2,
+      filename,
+      uploadKeyId,
+      uploadKeyLabel: keyLabel,
+      source: uploadKeyId ? 'upload-key' : 'public',
+    }));
   }
 
   return c.json({ uploadId: r2mp.uploadId, key: key2 });
@@ -203,13 +204,16 @@ uploadPublicRoutes.post('/part', async (c) => {
   const r2mp = c.env.DRIVE.resumeMultipartUpload(key, uploadId);
   const uploaded = await r2mp.uploadPart(partNumber, chunkBuf);
 
-  // S3 part (fire-and-forget)
-  const s3cfg = getS3Cfg(c.env);
-  if (s3cfg) {
+  // S3 part (fire-and-forget, all backends)
+  const s3Cfgs = await getS3Cfgs(c.env, c.env.DRIVE);
+  if (s3Cfgs.length > 0) {
     const s3Meta = await c.env.DRIVE.get('_s3/' + uploadId + '.json');
     if (s3Meta) {
-      const { s3UploadId } = JSON.parse(await s3Meta.text());
-      s3UploadPart(s3cfg, key, s3UploadId, partNumber, chunkBuf).catch(() => {});
+      const { s3UploadIds } = JSON.parse(await s3Meta.text());
+      for (const s3cfg of s3Cfgs) {
+        const s3Uid = s3UploadIds?.[s3cfg.bucket];
+        if (s3Uid) s3UploadPart(s3cfg, key, s3Uid, partNumber, chunkBuf).catch(() => {});
+      }
     }
   }
 
@@ -226,15 +230,18 @@ uploadPublicRoutes.post('/complete', async (c) => {
   const r2mp = c.env.DRIVE.resumeMultipartUpload(key, uploadId);
   const object = await r2mp.complete(parts);
 
-  // S3 complete (fire-and-forget)
+  // S3 complete (fire-and-forget, all backends)
   let meta: any = {};
-  const s3cfg = getS3Cfg(c.env);
-  if (s3cfg) {
+  const s3Cfgs = await getS3Cfgs(c.env, c.env.DRIVE);
+  if (s3Cfgs.length > 0) {
     const s3Meta = await c.env.DRIVE.get('_s3/' + uploadId + '.json');
     if (s3Meta) {
       meta = JSON.parse(await s3Meta.text());
-      const { s3UploadId } = meta;
-      s3CompleteMultipart(s3cfg, key, s3UploadId, parts).catch(() => {});
+      const { s3UploadIds } = meta;
+      for (const s3cfg of s3Cfgs) {
+        const s3Uid = s3UploadIds?.[s3cfg.bucket];
+        if (s3Uid) s3CompleteMultipart(s3cfg, key, s3Uid, parts).catch(() => {});
+      }
       await c.env.DRIVE.delete('_s3/' + uploadId + '.json');
     }
   }

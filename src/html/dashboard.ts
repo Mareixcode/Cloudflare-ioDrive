@@ -244,6 +244,21 @@ export function renderDashboard(isDemo: boolean = false): string {
     }
     /* ── Touch device: disable sticky hover ── */
     @media(hover:none){.row:hover{background:none;transform:none}.log-card:hover{background:none;transform:none;border-color:var(--border)}.nav:hover{background:none;transform:none}.pill:hover{background:none}}
+
+    /* ── Storage config ── */
+    .storage-card{background:var(--card);border:1.5px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:12px;transition:all .2s}
+    .storage-card:hover{border-color:var(--accent);box-shadow:var(--shadow)}
+    .storage-card .sc-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .storage-card .sc-name{font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px}
+    .storage-card .sc-badge{font-size:10px;padding:2px 8px;border-radius:6px;font-weight:600;background:var(--hover);color:var(--sub)}
+    .storage-card .sc-badge.primary{background:#10b981;color:#fff}
+    .storage-card .sc-badge.sync{background:#3b82f6;color:#fff}
+    .storage-card .sc-info{font-size:12px;color:var(--sub);margin-top:8px;display:flex;gap:16px;flex-wrap:wrap}
+    .storage-card .sc-actions{display:flex;gap:4px;margin-top:10px}
+    .form-group{margin-bottom:14px}
+    .form-group label{display:block;font-size:12px;font-weight:600;color:var(--sub);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.3px}
+    .form-group input,.form-group select{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:13px;background:var(--bg);color:var(--text);outline:none;transition:all .2s}
+    .form-group input:focus,.form-group select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(100,100,100,0.08)}
   </style>
 </head>
 <body${isDemo ? ' class="demo"' : ''}>
@@ -278,6 +293,10 @@ export function renderDashboard(isDemo: boolean = false): string {
       <a class="nav" data-nav="uploadkeys" onclick="go('uploadkeys')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
         上传链接
+      </a>
+      <a class="nav" data-nav="storage" onclick="go('storage')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        存储配置
       </a>
       <div class="side-bottom">
         <div class="pill" onclick="localStorage.removeItem('iodrive_token');location.href='/login'">
@@ -382,6 +401,89 @@ export function renderDashboard(isDemo: boolean = false): string {
           <div id="uk-empty" style="display:none;padding:60px;text-align:center;color:var(--sub)">暂无上传链接</div>
         </div>
       </div>
+
+      <!-- Storage Config page -->
+      <div id="page-storage" style="display:none">
+        <div style="padding:20px 24px;overflow-y:auto;height:100%">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:8px">
+            <div>
+              <div style="font-size:16px;font-weight:700;color:var(--text)">存储后端</div>
+              <div style="font-size:12px;color:var(--sub);margin-top:4px">管理文件存储后端，支持 R2、AWS S3、MinIO 等多种 S3 兼容存储</div>
+            </div>
+            <button class="btn btn-p demo-hidden" onclick="showAddStorage()">+ 添加后端</button>
+          </div>
+          <div id="storage-list"></div>
+          <div id="storage-empty" style="display:none;padding:60px;text-align:center;color:var(--sub)">
+            <div style="font-size:32px;margin-bottom:12px">☁️</div>
+            <div style="font-size:15px;font-weight:600">暂未配置额外存储后端</div>
+            <div style="font-size:12px;margin-top:6px">点击「添加后端」配置 S3 兼容存储作为备用下载源</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Storage Add/Edit Modal -->
+      <div id="storage-modal" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.4);backdrop-filter:blur(2px);display:none;align-items:center;justify-content:center">
+        <div style="background:var(--card);border-radius:16px;box-shadow:var(--modal-shadow);width:520px;max-width:calc(100vw - 32px);max-height:90vh;overflow-y:auto">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
+            <div style="font-size:15px;font-weight:700" id="storage-modal-title">添加存储后端</div>
+            <button onclick="closeStorageModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--sub)">✕</button>
+          </div>
+          <div style="padding:20px">
+            <div class="form-group">
+              <label>提供商</label>
+              <select id="sm-provider" onchange="onProviderChange()">
+                <option value="aws">AWS S3</option>
+                <option value="r2">Cloudflare R2 (S3 API)</option>
+                <option value="b2">Backblaze B2</option>
+                <option value="minio">MinIO (自建)</option>
+                <option value="alibaba">阿里云 OSS</option>
+                <option value="tencent">腾讯云 COS</option>
+                <option value="wasabi">Wasabi</option>
+                <option value="digitalocean">DigitalOcean Spaces</option>
+                <option value="volcengine">火山引擎 TOS</option>
+                <option value="custom">自定义 S3 兼容</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>名称 <span style="color:var(--sub);font-size:11px">(唯一标识)</span></label>
+              <input type="text" id="sm-name" placeholder="例: backup, b2-main">
+            </div>
+            <div class="form-group">
+              <label>Endpoint</label>
+              <input type="text" id="sm-endpoint" placeholder="s3.amazonaws.com">
+            </div>
+            <div class="form-group">
+              <label>存储桶</label>
+              <input type="text" id="sm-bucket" placeholder="my-bucket">
+            </div>
+            <div class="form-group">
+              <label>Region</label>
+              <input type="text" id="sm-region" placeholder="us-east-1">
+            </div>
+            <div class="form-group">
+              <label>Access Key</label>
+              <input type="text" id="sm-accesskey" placeholder="Access Key ID">
+            </div>
+            <div class="form-group">
+              <label>Secret Key</label>
+              <input type="password" id="sm-secretkey" placeholder="Secret Access Key">
+            </div>
+            <div style="display:flex;gap:16px;margin:12px 0">
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+                <input type="checkbox" id="sm-primary"> 设为主存储
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+                <input type="checkbox" id="sm-sync" checked> 上传时同步
+              </label>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+              <button class="btn btn-s" onclick="testStorageConnection()" id="sm-test-btn">测试连接</button>
+              <button class="btn btn-p" onclick="saveStorageBackend()" id="sm-save-btn">保存</button>
+            </div>
+            <div id="sm-test-result" style="margin-top:10px;font-size:12px;display:none"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -426,11 +528,13 @@ export function renderDashboard(isDemo: boolean = false): string {
       document.getElementById('page-downloads').style.display=page==='downloads'?'':'none';
       document.getElementById('page-shares').style.display=page==='shares'?'':'none';
       document.getElementById('page-uploadkeys').style.display=page==='uploadkeys'?'':'none';
+      document.getElementById('page-storage').style.display=page==='storage'?'':'none';
       if(page==='files')loadFiles();
       if(page==='uploads')loadUploads();
       if(page==='downloads')loadDownloads();
       if(page==='shares')loadShares();
       if(page==='uploadkeys')loadUploadKeys();
+      if(page==='storage')loadStorageBackends();
       closeSide();
     }
 
@@ -916,6 +1020,154 @@ export function renderDashboard(isDemo: boolean = false): string {
       if(!confirm('清空所有下载记录？'))return;
       var r=await api('/api/download/logs',{method:'DELETE'});
       if(r&&r.ok){var d=await r.json();alert('已清空 '+d.deleted+' 条记录');loadDownloads()}
+    }
+
+    // ── Storage config ──
+    var PROVIDER_PRESETS={};
+    var _editingName='';
+
+    async function loadProviderPresets(){
+      var r=await api('/api/storage/providers');
+      if(r){try{PROVIDER_PRESETS=await r.json()}catch{}}
+    }
+    loadProviderPresets();
+
+    async function loadStorageBackends(){
+      var r=await api('/api/storage/backends');
+      if(!r)return;var d=await r.json();
+      var list=document.getElementById('storage-list');
+      var empty=document.getElementById('storage-empty');
+      if(!d.backends||d.backends.length===0){
+        list.innerHTML='';empty.style.display='';return;
+      }
+      empty.style.display='none';
+      var html='';
+      d.backends.forEach(function(b){
+        var badges='';
+        if(b.primary)badges+='<span class="sc-badge primary">主存储</span>';
+        if(b.sync)badges+='<span class="sc-badge sync">同步</span>';
+        var providerName=PROVIDER_PRESETS[b.provider]?PROVIDER_PRESETS[b.provider].name:b.provider;
+        html+='<div class="storage-card">'+
+          '<div class="sc-head">'+
+            '<div class="sc-name"><span>'+esc(b.name)+'</span>'+badges+'</div>'+
+            '<div class="sc-actions">'+
+              '<button class="btn btn-s" onclick="editStorageBackend(\\''+esc(b.name)+'\\')">编辑</button>'+
+              '<button class="btn btn-s" style="color:#ef4444" onclick="deleteStorageBackend(\\''+esc(b.name)+'\\')">删除</button>'+
+            '</div>'+
+          '</div>'+
+          '<div class="sc-info">'+
+            '<span>📦 '+esc(providerName)+'</span>'+
+            '<span>🪣 '+esc(b.bucket)+'</span>'+
+            '<span>🌐 '+esc(b.endpoint)+'</span>'+
+            '<span>📍 '+esc(b.region)+'</span>'+
+            (b.hasCredentials?'<span>🔑 已配置</span>':'<span style="color:#ef4444">🔑 未配置</span>')+
+          '</div>'+
+        '</div>';
+      });
+      list.innerHTML=html;
+    }
+
+    function showAddStorage(){
+      _editingName='';
+      document.getElementById('storage-modal-title').textContent='添加存储后端';
+      document.getElementById('sm-name').value='';document.getElementById('sm-name').disabled=false;
+      document.getElementById('sm-endpoint').value='';
+      document.getElementById('sm-bucket').value='';
+      document.getElementById('sm-region').value='';
+      document.getElementById('sm-accesskey').value='';
+      document.getElementById('sm-secretkey').value='';
+      document.getElementById('sm-primary').checked=false;
+      document.getElementById('sm-sync').checked=true;
+      document.getElementById('sm-test-result').style.display='none';
+      document.getElementById('sm-save-btn').textContent='保存';
+      document.getElementById('storage-modal').style.display='flex';
+    }
+
+    function closeStorageModal(){
+      document.getElementById('storage-modal').style.display='none';
+    }
+
+    function onProviderChange(){
+      var p=document.getElementById('sm-provider').value;
+      var preset=PROVIDER_PRESETS[p];
+      if(!preset)return;
+      if(preset.endpoint)document.getElementById('sm-endpoint').value=preset.endpoint;
+      if(preset.regions&&preset.regions.length>0)document.getElementById('sm-region').value=preset.regions[0];
+    }
+
+    async function editStorageBackend(name){
+      var r=await api('/api/storage/backends');
+      if(!r)return;var d=await r.json();
+      var b=d.backends.find(function(x){return x.name===name});
+      if(!b)return;
+      _editingName=name;
+      document.getElementById('storage-modal-title').textContent='编辑存储后端';
+      document.getElementById('sm-provider').value=b.provider;
+      document.getElementById('sm-name').value=b.name;document.getElementById('sm-name').disabled=true;
+      document.getElementById('sm-endpoint').value=b.endpoint;
+      document.getElementById('sm-bucket').value=b.bucket;
+      document.getElementById('sm-region').value=b.region;
+      document.getElementById('sm-accesskey').value='';
+      document.getElementById('sm-secretkey').value='';
+      document.getElementById('sm-primary').checked=!!b.primary;
+      document.getElementById('sm-sync').checked=b.sync!==false;
+      document.getElementById('sm-test-result').style.display='none';
+      document.getElementById('sm-save-btn').textContent='更新';
+      document.getElementById('storage-modal').style.display='flex';
+    }
+
+    async function saveStorageBackend(){
+      var name=document.getElementById('sm-name').value.trim();
+      var provider=document.getElementById('sm-provider').value;
+      var endpoint=document.getElementById('sm-endpoint').value.trim();
+      var bucket=document.getElementById('sm-bucket').value.trim();
+      var region=document.getElementById('sm-region').value.trim();
+      var accessKey=document.getElementById('sm-accesskey').value.trim();
+      var secretKey=document.getElementById('sm-secretkey').value.trim();
+      var primary=document.getElementById('sm-primary').checked;
+      var sync=document.getElementById('sm-sync').checked;
+
+      if(!name||!endpoint||!bucket||!region){alert('请填写所有必填字段');return}
+      if(!_editingName&&(!accessKey||!secretKey)){alert('请填写 Access Key 和 Secret Key');return}
+
+      var body={name:name,provider:provider,endpoint:endpoint,bucket:bucket,region:region,primary:primary,sync:sync};
+      if(accessKey)body.accessKey=accessKey;
+      if(secretKey)body.secretKey=secretKey;
+
+      var r;
+      if(_editingName){
+        r=await api('/api/storage/backends/'+encodeURIComponent(_editingName),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      }else{
+        r=await api('/api/storage/backends',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      }
+      if(r&&r.ok){closeStorageModal();loadStorageBackends()}
+      else{var e=await r.json().catch(function(){return{error:'操作失败'}});alert(e.error||'操作失败')}
+    }
+
+    async function deleteStorageBackend(name){
+      if(!confirm('确定删除存储后端「'+name+'」？'))return;
+      var r=await api('/api/storage/backends/'+encodeURIComponent(name),{method:'DELETE'});
+      if(r&&r.ok)loadStorageBackends();
+    }
+
+    async function testStorageConnection(){
+      var endpoint=document.getElementById('sm-endpoint').value.trim();
+      var bucket=document.getElementById('sm-bucket').value.trim();
+      var region=document.getElementById('sm-region').value.trim();
+      var accessKey=document.getElementById('sm-accesskey').value.trim();
+      var secretKey=document.getElementById('sm-secretkey').value.trim();
+      if(!endpoint||!bucket||!region||!accessKey||!secretKey){alert('请填写所有字段后再测试');return}
+
+      var btn=document.getElementById('sm-test-btn');
+      var result=document.getElementById('sm-test-result');
+      btn.textContent='测试中...';btn.disabled=true;result.style.display='none';
+
+      var r=await api('/api/storage/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({endpoint:endpoint,bucket:bucket,region:region,accessKey:accessKey,secretKey:secretKey})});
+      btn.textContent='测试连接';btn.disabled=false;
+      if(r){var d=await r.json();result.style.display='block';
+        if(d.ok){result.style.color='#10b981';result.textContent='✅ '+d.message}
+        else{result.style.color='#ef4444';result.textContent='❌ '+(d.error||'连接失败')}
+      }
     }
 
     loadFiles();

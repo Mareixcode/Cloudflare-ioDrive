@@ -9,6 +9,7 @@ import { downloadRoutes } from './download';
 import { uploadKeyRoutes, uploadKeyPublicRoutes } from './upload-keys';
 import { uploadPublicRoutes } from './upload-public';
 import { uploadLogRoutes } from './upload-logs';
+import { storageConfigRoutes } from './storage-config';
 import { renderDashboard } from './html/dashboard';
 import { renderLogin } from './html/login';
 import { renderSharePage } from './html/share';
@@ -71,6 +72,7 @@ app.route('/api/upload-keys', uploadKeyPublicRoutes);
 app.route('/api/upload-keys', uploadKeyRoutes);
 app.route('/api/upload-public', uploadPublicRoutes);
 app.route('/api/upload-logs', uploadLogRoutes);
+app.route('/api/storage', storageConfigRoutes);
 
 // ── SEO ───────────────────────────────────
 

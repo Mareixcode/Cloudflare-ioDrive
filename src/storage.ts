@@ -2,6 +2,28 @@
 import type { Env, StorageBackendConfig } from './types';
 import type { S3Config } from './s3-upload';
 
+// ── 运行时配置缓存 ──────────────────────────
+
+let _runtimeConfig: { backends: StorageBackendConfig[]; credentials: Record<string, { accessKey: string; secretKey: string }> } | null = null;
+
+/**
+ * 从 R2 加载运行时存储配置（控制台中配置的）。
+ * 如果 R2 中没有配置，返回 null，回退到环境变量。
+ */
+async function loadRuntimeConfig(drive: R2Bucket): Promise<typeof _runtimeConfig> {
+  try {
+    const obj = await drive.get('_config/storage.json');
+    if (!obj) return null;
+    const data = JSON.parse(await obj.text());
+    if (data.backends?.length > 0) {
+      return { backends: data.backends, credentials: data.credentials || {} };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Provider 预设 ─────────────────────────────
 
 export interface ProviderPreset {
@@ -288,20 +310,63 @@ export function getLegacyS3Cfg(env: Env): S3Config | null {
 }
 
 /**
- * 获取所有 S3Config 列表（新配置 + 向后兼容）。
+ * 获取所有 S3Config 列表（运行时配置 > 环境变量新格式 > 向后兼容旧格式）。
  * 用于上传时遍历所有后端。
+ * @param env 环境变量
+ * @param drive R2 Bucket binding（可选，用于读取运行时配置）
  */
-export function getAllS3Configs(env: Env): S3Config[] {
+export async function getAllS3ConfigsAsync(env: Env, drive?: R2Bucket): Promise<S3Config[]> {
   const configs: S3Config[] = [];
 
-  // 新格式
+  // 1. 优先从 R2 读取运行时配置
+  if (drive) {
+    const runtime = await loadRuntimeConfig(drive);
+    if (runtime) {
+      for (const b of runtime.backends) {
+        const cred = runtime.credentials[b.name];
+        if (!cred) continue;
+        const pathStyle = b.pathStyle !== undefined ? b.pathStyle : detectPathStyle(b.endpoint, b.provider);
+        configs.push({
+          endpoint: b.endpoint,
+          bucket: b.bucket,
+          region: b.region,
+          accessKey: cred.accessKey,
+          secretKey: cred.secretKey,
+          pathStyle,
+        });
+      }
+      if (configs.length > 0) return configs;
+    }
+  }
+
+  // 2. 回退到环境变量新格式
   const backends = parseStorageConfig(env);
   for (const b of backends) {
     const cfg = toS3Config(b);
     if (cfg) configs.push(cfg);
   }
 
-  // 向后兼容
+  // 3. 回退到旧格式
+  if (configs.length === 0) {
+    const legacy = getLegacyS3Cfg(env);
+    if (legacy) configs.push(legacy);
+  }
+
+  return configs;
+}
+
+/**
+ * 同步版本：仅从环境变量获取（不读 R2），用于不需要运行时配置的场景。
+ */
+export function getAllS3Configs(env: Env): S3Config[] {
+  const configs: S3Config[] = [];
+
+  const backends = parseStorageConfig(env);
+  for (const b of backends) {
+    const cfg = toS3Config(b);
+    if (cfg) configs.push(cfg);
+  }
+
   if (configs.length === 0) {
     const legacy = getLegacyS3Cfg(env);
     if (legacy) configs.push(legacy);

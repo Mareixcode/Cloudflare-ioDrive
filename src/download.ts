@@ -3,7 +3,7 @@ import type { Env, DownloadLogEntry } from './types';
 import { jwtAuth } from './auth';
 import { parseUA } from './ua-parser';
 import { verifyTurnstile } from './turnstile';
-import { getAllS3Configs, detectPathStyle } from './storage';
+import { getAllS3ConfigsAsync, detectPathStyle } from './storage';
 
 export const downloadRoutes = new Hono<{ Bindings: Env }>();
 
@@ -148,7 +148,7 @@ downloadRoutes.post('/token', async (c) => {
   // S3 presigned URL (支持多后端 + path-style)
   const s3Urls: { name: string; url: string }[] = [];
   try {
-    const s3Configs = getAllS3Configs(c.env);
+    const s3Configs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
     for (const cfg of s3Configs) {
       try {
         const url = await generatePresignedUrl(
