@@ -9,13 +9,15 @@ ADMIN_USER = "admin"
 TURNSTILE_SITE_KEY = "YOUR_TURNSTILE_SITE_KEY"
 PUBLIC_UPLOAD_PATH = "uploads/public/"
 
-# ── R2 存储（可选，Cloudflare 原生存储，零出口流量费） ──
-# 如不使用 R2，请删除下方 R2_PUBLIC_DOMAIN / R2_BUCKET / R2_ACCOUNT_ID 和 [[r2_buckets]] 部分
-R2_PUBLIC_DOMAIN = "YOUR_R2_DOMAIN"
-R2_BUCKET = "YOUR_R2_BUCKET"
-R2_ACCOUNT_ID = "YOUR_ACCOUNT_ID"
+# ── R2 存储（可选） ──────────────────────────────────────
+# Cloudflare R2 原生存储，零出口流量费
+# 如不使用 R2，请删除下方所有 R2 相关配置和 [[r2_buckets]] 部分
+# 不配置 R2 时，系统会使用下方 S3 兼容存储作为唯一后端
+# R2_PUBLIC_DOMAIN = "YOUR_R2_DOMAIN"
+# R2_BUCKET = "YOUR_R2_BUCKET"
+# R2_ACCOUNT_ID = "YOUR_ACCOUNT_ID"
 
-# ── 多后端存储配置（可选） ──────────────────────────────
+# ── 多后端存储配置（至少需要一个 S3 兼容存储） ──────────────
 # 支持同时配置多个 S3 兼容存储后端，格式为 JSON 数组
 # 每个后端包含：name(名称) / provider(提供商) / endpoint / bucket / region / sync(是否同步写入)
 # 路径风格(pathStyle)会根据 provider 和 endpoint 自动检测，也可手动指定
@@ -32,12 +34,12 @@ R2_ACCOUNT_ID = "YOUR_ACCOUNT_ID"
 #   volcengine   - 火山引擎 TOS
 #   custom       - 自定义 S3 兼容
 #
-# STORAGE_CONFIG = '[{"name":"backup","provider":"aws","endpoint":"s3.amazonaws.com","bucket":"my-backup","region":"us-east-1","sync":true}]'
+# STORAGE_CONFIG = '[{"name":"main","provider":"aws","endpoint":"s3.amazonaws.com","bucket":"my-bucket","region":"us-east-1","primary":true,"sync":true}]'
 
-# ── R2 存储桶绑定 ──────────────────────────────────────
-[[r2_buckets]]
-binding = "DRIVE"
-bucket_name = "YOUR_R2_BUCKET"
+# ── R2 存储桶绑定（可选，使用 R2 时需要） ──────────────────
+# [[r2_buckets]]
+# binding = "DRIVE"
+# bucket_name = "YOUR_R2_BUCKET"
 
 [observability.logs]
 enabled = true

@@ -128,10 +128,7 @@ filesRoutes.post('/move', async (c) => {
     const obj = await engine.get(key);
     if (!obj) continue;
     const filename = key.split('/').pop() || key;
-    // For uniqueKey we need R2Bucket — if not available, use engine.head for check
-    const newKey = c.env.DRIVE
-      ? await uniqueKey(c.env.DRIVE, targetPath, filename)
-      : targetPath + filename;
+    const newKey = await uniqueKey(engine, targetPath, filename);
     await engine.put(newKey, await obj.arrayBuffer(), { contentType: 'application/octet-stream' });
     await engine.delete(key);
   }

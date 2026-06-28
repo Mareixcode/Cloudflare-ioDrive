@@ -13,7 +13,7 @@
 </div>
 
 <p align="center">
-  A high-performance file management and sharing platform built on Cloudflare Workers + Hono + R2
+  A high-performance file management and sharing platform built on Cloudflare Workers + Hono + S3-compatible storage
 </p>
 
 <p align="center">
@@ -56,7 +56,7 @@ ioDrive is a lightweight file management system that runs entirely on Cloudflare
 ### Why ioDrive?
 
 - **Zero Server Costs**: Runs entirely within Cloudflare Workers free tier (100,000 requests/day)
-- **Unlimited Storage Potential**: Built on R2 object storage with zero egress fees
+- **Flexible Storage**: Supports R2, AWS S3, MinIO, and any S3-compatible storage with multiple backends
 - **Lightning-Fast Access**: 330+ global data centers, users download from the nearest edge
 - **Deploy in One Command**: No database or server configuration needed
 - **Secure & Reliable**: JWT authentication + Turnstile CAPTCHA to prevent abuse
@@ -379,7 +379,8 @@ Dashboard Upload               Public Upload / Upload Link
 | [TypeScript](https://www.typescriptlang.org/) | ^5.0 | Type-safe development language |
 | [Hono](https://hono.dev/) | ^4.0 | Lightweight web framework optimized for edge computing |
 | [Cloudflare Workers](https://workers.cloudflare.com/) | - | Serverless runtime, global edge deployment |
-| [Cloudflare R2](https://www.cloudflare.com/r2/) | - | Object storage, zero egress fees |
+| [Cloudflare R2](https://www.cloudflare.com/r2/) | - | Object storage (optional), zero egress fees |
+| [S3-Compatible Storage](https://aws.amazon.com/s3/) | - | Primary storage backend, supports AWS S3, MinIO, B2, etc. |
 | [Cloudflare Turnstile](https://www.cloudflare.com/products/turnstile/) | - | Privacy-friendly CAPTCHA |
 | [jose](https://github.com/panva/jose) | ^6.0 | JWT signing and verification (HS256) |
 | [Wrangler](https://developers.cloudflare.com/workers/wrangler/) | ^4.0 | Cloudflare CLI for dev and deployment |
@@ -406,7 +407,8 @@ Dashboard Upload               Public Upload / Upload Link
 
 - [Node.js](https://nodejs.org/) >= 18
 - [Cloudflare Account](https://dash.cloudflare.com/sign-up)
-- **Workers** and **R2** services enabled in your Cloudflare account
+- **Workers** service enabled in your Cloudflare account
+- At least one S3-compatible storage service (AWS S3, Cloudflare R2, MinIO, Backblaze B2, Alibaba OSS, Tencent COS, etc.)
 - A domain (managed on Cloudflare DNS)
 
 ### Step 1: Clone the Project

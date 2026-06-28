@@ -1,4 +1,5 @@
 // Shared upload helpers
+import type { StorageEngine } from './storage-engine';
 
 export function getContentType(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
@@ -18,10 +19,27 @@ export function getContentType(filename: string): string {
 
 // Generate a unique key under path preserving the original filename.
 // If the target exists, appends " (1)", " (2)" ... before extension.
-export async function uniqueKey(drive: R2Bucket, path: string, filename: string): Promise<string> {
+// Accepts either R2Bucket (legacy) or StorageEngine.
+export async function uniqueKey(
+  storage: StorageEngine | R2Bucket,
+  path: string,
+  filename: string,
+): Promise<string> {
   if (!path.endsWith('/')) path += '/';
+
+  // 适配 R2Bucket 和 StorageEngine 两种接口
+  const head = async (key: string) => {
+    if ('head' in storage && typeof storage.head === 'function') {
+      // StorageEngine.head returns HeadResult | null
+      // R2Bucket.head returns R2Object | null
+      const result = await (storage as StorageEngine).head(key);
+      return result;
+    }
+    return null;
+  };
+
   const baseKey = path + filename;
-  const exists = await drive.head(baseKey);
+  const exists = await head(baseKey);
   if (!exists) return baseKey;
 
   const lastDot = filename.lastIndexOf('.');
@@ -30,10 +48,9 @@ export async function uniqueKey(drive: R2Bucket, path: string, filename: string)
 
   for (let i = 1; i < 1000; i++) {
     const candidate = path + name + ' (' + i + ')' + ext;
-    const head = await drive.head(candidate);
-    if (!head) return candidate;
+    const h = await head(candidate);
+    if (!h) return candidate;
   }
 
-  // Fallback (should be extremely rare)
   return path + name + ' (' + Date.now() + ')' + ext;
 }

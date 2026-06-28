@@ -13,7 +13,7 @@
 </div>
 
 <p align="center">
-  基于 Cloudflare Workers + Hono + R2 构建的高性能文件管理与分享平台
+  基于 Cloudflare Workers + Hono + S3 兼容存储构建的高性能文件管理与分享平台
 </p>
 
 <p align="center">
@@ -56,7 +56,7 @@ ioDrive 是一个完全运行在 Cloudflare 边缘网络上的轻量级文件管
 ### 为什么选择 ioDrive？
 
 - **零服务器成本**：全部运行在 Cloudflare Workers 免费额度内（每日 10 万次请求）
-- **无限存储潜力**：基于 R2 对象存储，零出口流量费
+- **灵活存储**：支持 R2、AWS S3、MinIO 等任意 S3 兼容存储，可同时配置多个后端
 - **极速访问**：Cloudflare 全球 330+ 数节点，用户可就近下载
 - **开箱即用**：一条命令部署，无需配置数据库或服务器
 - **安全可靠**：JWT 认证 + Turnstile 人机验证，防滥用防攻击
@@ -295,7 +295,7 @@ chmod +x setup.sh
 
 ### 数据存储设计
 
-ioDrive 不依赖传统数据库，所有元数据以 JSON 文件形式存储在 R2 中：
+ioDrive 不依赖传统数据库，所有元数据以 JSON 文件形式存储在对象存储中（R2 或任意 S3 兼容存储）：
 
 | 路径前缀 | 内容 | 说明 |
 |----------|------|------|
@@ -379,7 +379,8 @@ Dashboard 上传                   公共上传 / 上传链接
 | [TypeScript](https://www.typescriptlang.org/) | ^5.0 | 类型安全的开发语言 |
 | [Hono](https://hono.dev/) | ^4.0 | 轻量级 Web 框架，专为边缘计算优化 |
 | [Cloudflare Workers](https://workers.cloudflare.com/) | - | Serverless 运行时，全球边缘部署 |
-| [Cloudflare R2](https://www.cloudflare.com/r2/) | - | 对象存储，零出口流量费 |
+| [Cloudflare R2](https://www.cloudflare.com/r2/) | - | 对象存储（可选），零出口流量费 |
+| [S3 兼容存储](https://aws.amazon.com/s3/) | - | 主存储后端，支持 AWS S3、MinIO、B2 等 |
 | [Cloudflare Turnstile](https://www.cloudflare.com/products/turnstile/) | - | 隐私友好的人机验证 |
 | [jose](https://github.com/panva/jose) | ^6.0 | JWT 签名与验证（HS256） |
 | [Wrangler](https://developers.cloudflare.com/workers/wrangler/) | ^4.0 | Cloudflare CLI 开发部署工具 |
@@ -406,7 +407,8 @@ Dashboard 上传                   公共上传 / 上传链接
 
 - [Node.js](https://nodejs.org/) >= 18
 - [Cloudflare 账号](https://dash.cloudflare.com/sign-up)
-- Cloudflare 账号中已开通 **Workers** 和 **R2** 服务
+- Cloudflare 账号中已开通 **Workers** 服务
+- 至少一个 S3 兼容存储服务（AWS S3、Cloudflare R2、MinIO、Backblaze B2、阿里云 OSS、腾讯云 COS 等）
 - 一个域名（托管在 Cloudflare DNS 上）
 
 ### 第一步：克隆项目

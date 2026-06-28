@@ -31,7 +31,6 @@ uploadPublicRoutes.post('/single', async (c) => {
 
   const engine = await createStorageEngine(c.env);
 
-  // Validate upload key
   let keyLabel: string | undefined;
   if (uploadKeyId) {
     const data = await engine.get('_upload_keys/' + uploadKeyId + '.json');
@@ -46,9 +45,7 @@ uploadPublicRoutes.post('/single', async (c) => {
   }
 
   if (!path.endsWith('/')) path += '/';
-  const key2 = c.env.DRIVE
-    ? await uniqueKey(c.env.DRIVE, path, file.name)
-    : path + file.name;
+  const key2 = await uniqueKey(engine, path, file.name);
   const contentType = file.type || 'application/octet-stream';
   const buf = await file.arrayBuffer();
 
@@ -64,16 +61,12 @@ uploadPublicRoutes.post('/single', async (c) => {
 
   c.executionCtx.waitUntil(
     writeUploadLog(c.env, {
-      key: key2,
-      name: file.name,
-      size: file.size,
-      ip,
+      key: key2, name: file.name, size: file.size, ip,
       country: c.req.header('CF-IPCountry') || '',
       ua: c.req.header('User-Agent') || '',
       referer: c.req.header('Referer') || '',
       source: uploadKeyId ? 'upload-key' : 'public',
-      uploadKeyId,
-      uploadKeyLabel: keyLabel,
+      uploadKeyId, uploadKeyLabel: keyLabel,
     }),
   );
 
@@ -109,30 +102,24 @@ uploadPublicRoutes.post('/init', async (c) => {
   }
 
   if (!path.endsWith('/')) path += '/';
-  const key2 = c.env.DRIVE
-    ? await uniqueKey(c.env.DRIVE, path, filename)
-    : path + filename;
+  const key2 = await uniqueKey(engine, path, filename);
   const ct = getContentType(filename);
 
   // Primary init
   const mp = await engine.createMultipartUpload(key2, { contentType: ct });
 
-  // S3 init
+  // Sync init to S3 backends
   const s3Cfgs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
   const s3UploadIds: Record<string, string> = {};
   for (const s3cfg of s3Cfgs) {
     const s3Uid = await s3CreateMultipart(s3cfg, key2, ct);
     if (s3Uid) s3UploadIds[s3cfg.bucket] = s3Uid;
   }
-  if (Object.keys(s3UploadIds).length > 0 && c.env.DRIVE) {
-    await c.env.DRIVE.put('_s3/' + mp.uploadId + '.json', JSON.stringify({
-      s3UploadIds,
-      key: key2,
-      filename,
-      uploadKeyId,
-      uploadKeyLabel: keyLabel,
+  if (Object.keys(s3UploadIds).length > 0) {
+    await engine.put('_multipart/' + mp.uploadId + '.json', JSON.stringify({
+      s3UploadIds, key: key2, filename, uploadKeyId, uploadKeyLabel: keyLabel,
       source: uploadKeyId ? 'upload-key' : 'public',
-    }));
+    }), { contentType: 'application/json' });
   }
 
   return c.json({ uploadId: mp.uploadId, key: key2 });
@@ -149,27 +136,40 @@ uploadPublicRoutes.post('/part', async (c) => {
   if (!uploadId || !key || !partNumber || !chunk) return c.json({ error: '缺少参数' }, 400);
   if (!(chunk instanceof File)) return c.json({ error: '无效的文件数据' }, 400);
 
+  const engine = await createStorageEngine(c.env);
   const chunkBuf = await chunk.arrayBuffer();
 
-  // Primary part (R2 only for now)
-  if (!c.env.DRIVE) return c.json({ error: 'R2 未配置，分片上传需要 R2' }, 500);
-  const r2mp = c.env.DRIVE.resumeMultipartUpload(key, uploadId);
-  const uploaded = await r2mp.uploadPart(partNumber, chunkBuf);
+  // Primary part upload
+  let partResult: { partNumber: number; etag: string };
+  if (c.env.DRIVE) {
+    const r2mp = c.env.DRIVE.resumeMultipartUpload(key, uploadId);
+    partResult = await r2mp.uploadPart(partNumber, chunkBuf);
+  } else {
+    const meta = await engine.get('_multipart/' + uploadId + '.json');
+    if (!meta) throw new Error('分片上传会话不存在');
+    const { s3UploadIds } = JSON.parse(await meta.text());
+    const s3Cfgs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
+    const primaryS3 = s3Cfgs[0];
+    const primaryUid = primaryS3 ? s3UploadIds[primaryS3.bucket] : null;
+    if (!primaryS3 || !primaryUid) throw new Error('S3 主存储未配置');
+    const etag = await s3UploadPart(primaryS3, key, primaryUid, partNumber, chunkBuf);
+    if (!etag) throw new Error('S3 分片上传失败');
+    partResult = { partNumber, etag };
+  }
 
-  // S3 sync part (fire-and-forget)
-  const s3Cfgs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
-  if (s3Cfgs.length > 0) {
-    const s3Meta = await c.env.DRIVE.get('_s3/' + uploadId + '.json');
-    if (s3Meta) {
-      const { s3UploadIds } = JSON.parse(await s3Meta.text());
-      for (const s3cfg of s3Cfgs) {
-        const s3Uid = s3UploadIds?.[s3cfg.bucket];
-        if (s3Uid) s3UploadPart(s3cfg, key, s3Uid, partNumber, chunkBuf).catch(() => {});
-      }
+  // Sync part to S3 backends (fire-and-forget)
+  const meta = await engine.get('_multipart/' + uploadId + '.json');
+  if (meta) {
+    const { s3UploadIds } = JSON.parse(await meta.text());
+    const s3Cfgs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
+    const syncCfgs = c.env.DRIVE ? s3Cfgs : s3Cfgs.slice(1);
+    for (const s3cfg of syncCfgs) {
+      const s3Uid = s3UploadIds?.[s3cfg.bucket];
+      if (s3Uid) s3UploadPart(s3cfg, key, s3Uid, partNumber, chunkBuf).catch(() => {});
     }
   }
 
-  return c.json({ partNumber: uploaded.partNumber, etag: uploaded.etag });
+  return c.json({ partNumber: partResult.partNumber, etag: partResult.etag });
 });
 
 // ── Complete multipart ──
@@ -186,31 +186,36 @@ uploadPublicRoutes.post('/complete', async (c) => {
     const r2mp = c.env.DRIVE.resumeMultipartUpload(key, uploadId);
     object = await r2mp.complete(parts);
   } else {
+    const meta = await engine.get('_multipart/' + uploadId + '.json');
+    if (meta) {
+      const { s3UploadIds } = JSON.parse(await meta.text());
+      const s3Cfgs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
+      const primaryS3 = s3Cfgs[0];
+      const primaryUid = primaryS3 ? s3UploadIds[primaryS3.bucket] : null;
+      if (primaryS3 && primaryUid) await s3CompleteMultipart(primaryS3, key, primaryUid, parts);
+    }
     object = { key, size: 0 };
   }
 
-  // S3 sync complete
+  // Sync complete to S3 backends
   let meta: any = {};
-  const s3Cfgs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
-  if (s3Cfgs.length > 0 && c.env.DRIVE) {
-    const s3Meta = await c.env.DRIVE.get('_s3/' + uploadId + '.json');
-    if (s3Meta) {
-      meta = JSON.parse(await s3Meta.text());
-      const { s3UploadIds } = meta;
-      for (const s3cfg of s3Cfgs) {
-        const s3Uid = s3UploadIds?.[s3cfg.bucket];
-        if (s3Uid) s3CompleteMultipart(s3cfg, key, s3Uid, parts).catch(() => {});
-      }
-      await c.env.DRIVE.delete('_s3/' + uploadId + '.json');
+  const metaObj = await engine.get('_multipart/' + uploadId + '.json');
+  if (metaObj) {
+    meta = JSON.parse(await metaObj.text());
+    const { s3UploadIds } = meta;
+    const s3Cfgs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
+    const syncCfgs = c.env.DRIVE ? s3Cfgs : s3Cfgs.slice(1);
+    for (const s3cfg of syncCfgs) {
+      const s3Uid = s3UploadIds?.[s3cfg.bucket];
+      if (s3Uid) s3CompleteMultipart(s3cfg, key, s3Uid, parts).catch(() => {});
     }
+    await engine.delete('_multipart/' + uploadId + '.json');
   }
 
   const name = key.split('/').pop() || key;
   c.executionCtx.waitUntil(
     writeUploadLog(c.env, {
-      key,
-      name,
-      size: object.size,
+      key, name, size: object.size,
       ip: c.req.header('CF-Connecting-IP') || '',
       country: c.req.header('CF-IPCountry') || '',
       ua: c.req.header('User-Agent') || '',
@@ -231,11 +236,14 @@ uploadPublicRoutes.post('/abort', async (c) => {
 
   if (!uploadId || !key) return c.json({ error: '缺少参数' }, 400);
 
+  const engine = await createStorageEngine(c.env);
+
   if (c.env.DRIVE) {
     const r2mp = c.env.DRIVE.resumeMultipartUpload(key, uploadId);
     await r2mp.abort();
-    await c.env.DRIVE.delete('_s3/' + uploadId + '.json').catch(() => {});
   }
+
+  await engine.delete('_multipart/' + uploadId + '.json').catch(() => {});
 
   return c.json({ ok: true });
 });
