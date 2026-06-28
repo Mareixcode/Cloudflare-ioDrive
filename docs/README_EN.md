@@ -1161,6 +1161,9 @@ GPL-3.0 License © 2026 [Mareixcode](https://github.com/Mareixcode)
 
 ---
 
+Thank you to the developers of the LINUXDO community for their support of this project​ [**LINUX.DO**](https://linux.do)
+
+
 <p align="center">
   <sub>Built with ❤️ on Cloudflare's edge network</sub>
 </p>

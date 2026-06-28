@@ -1156,6 +1156,8 @@ GPL-3.0 License © 2026 [MareixHunk](https://github.com/Mareixcode)
 
 ---
 
+​感谢LINUXDO社区开发者对本项目的支持​ [**LINUX.DO**](https://linux.do)
+
 <p align="center">
   <sub>Built with ❤️ on Cloudflare's edge network</sub>
 </p>
