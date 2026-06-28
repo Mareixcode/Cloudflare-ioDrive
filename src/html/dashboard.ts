@@ -599,19 +599,19 @@ export function renderDashboard(isDemo: boolean = false): string {
           '<div class="nm" title="'+esc(f.name)+'">'+esc(f.name)+'</div>'+
           '<div class="sz">--</div><div class="dt"></div><div class="ac"></div></div>';
       }
-      // Files
-      var ff=q?files.filter(function(x){return x.name.toLowerCase().includes(q)}):files;
-      for(var i=0;i<ff.length;i++){
-        var x=ff[i],e=esc(x.name),fiIdx=folders.length+i;
-        h+='<div class="row" data-i="'+i+'" style="animation-delay:'+Math.min(fiIdx*30,300)+'ms">'+
+      // Files (ff stores {f:file, i:originalIndex} to fix search + action mismatch)
+      var ff=q?files.map(function(x,i){return{f:x,i:i}}).filter(function(o){return o.f.name.toLowerCase().includes(q)}):files.map(function(x,i){return{f:x,i:i}});
+      for(var j=0;j<ff.length;j++){
+        var x=ff[j].f,oi=ff[j].i,e=esc(x.name),fiIdx=folders.length+j;
+        h+='<div class="row" data-i="'+oi+'" style="animation-delay:'+Math.min(fiIdx*30,300)+'ms">'+
           '<div class="chk"><input type="checkbox" class="row-chk" data-key="'+esc(x.key)+'"></div>'+
           '<div class="ic">'+fi(x.name)+'</div>'+
           '<div class="nm" title="'+e+'">'+e+'</div>'+
           '<div class="sz">'+fmt(x.size)+'</div>'+
           '<div class="dt">'+new Date(x.uploaded).toLocaleDateString('zh-CN')+'</div>'+
-          '<div class="ac"><button data-act="share" data-i="'+i+'" title="分享">\u{1F4E4}</button>'+
-          '<button data-act="dl" data-i="'+i+'" title="下载">⬇️</button>'+
-          (IS_DEMO?'':'<button data-act="del" data-i="'+i+'" title="删除">\u{1F5D1}️</button>')+'</div></div>';
+          '<div class="ac"><button data-act="share" data-i="'+oi+'" title="分享">\u{1F4E4}</button>'+
+          '<button data-act="dl" data-i="'+oi+'" title="下载">⬇️</button>'+
+          (IS_DEMO?'':'<button data-act="del" data-i="'+oi+'" title="删除">\u{1F5D1}️</button>')+'</div></div>';
       }
       if(!h)h='<div class="empty">'+(q?'未找到匹配的文件':(IS_DEMO?'此文件夹为空':'此文件夹为空<br><span style="font-size:12px;margin-top:8px;display:inline-block;color:var(--sub)">将文件拖到这里，或点击右下角 +</span>'))+'</div>';
       c.innerHTML=h;
@@ -722,7 +722,7 @@ export function renderDashboard(isDemo: boolean = false): string {
       var list=document.getElementById('sh-list');
       var empty=document.getElementById('sh-empty');
       var q=(document.getElementById('sh-search').value||'').toLowerCase();
-      var filtered=q?shares.filter(function(x){return (x.name||'').toLowerCase().includes(q)||(x.key||'').toLowerCase().includes(q)}):shares;
+      var filtered=q?shares.filter(function(x){return (x.name||'').toLowerCase().includes(q)||(x.key||'').toLowerCase().includes(q)}):shares.slice();
       if(!filtered.length){list.innerHTML='';empty.style.display='block';return}
       empty.style.display='none';
       var h='';
@@ -820,8 +820,8 @@ export function renderDashboard(isDemo: boolean = false): string {
     async function up(file){if(IS_DEMO)return;document.getElementById('up-panel').classList.add('on');var id='u'+Date.now()+Math.random().toString(36).slice(2,6);document.getElementById('up-list').insertAdjacentHTML('beforeend','<div class="up-item" id="'+id+'"><div class="nm">'+file.name+' ('+fmt(file.size)+')</div><div class="up-bar"><div class="fl" style="width:0%"></div></div><div class="st">准备...</div></div>');try{if(file.size<=PS)await upS(file,id);else await upM(file,id);st(id,'✅ 完成');loadFiles()}catch(e){st(id,'❌ '+e.message)}}
     function xhrUp(url,fd,id){return new Promise(function(ok,no){var x=new XMLHttpRequest(),t0=Date.now();x.open('POST',url);var tk=localStorage.getItem('iodrive_token');if(tk)x.setRequestHeader('Authorization','Bearer '+tk);x.upload.onprogress=function(e){if(e.lengthComputable){var el=(Date.now()-t0)/1000,sp=el>0?e.loaded/el:0,pct=Math.round(e.loaded/e.total*100),rm=sp>0?(e.total-e.loaded)/sp:0;prog(id,pct);st(id,fmtS(sp)+' · '+pct+'% · 剩余 '+fmtE(rm))}};x.onload=function(){if(x.status>=200&&x.status<300){try{ok(JSON.parse(x.responseText))}catch{ok(x.responseText)}}else{try{no(new Error(JSON.parse(x.responseText).error))}catch{no(new Error('失败 '+x.status))}}};x.onerror=function(){no(new Error('网络错误'))};x.send(fd)})}
     async function upS(f,id){var fd=new FormData();fd.append('file',f);fd.append('path',currentPath);await xhrUp('/api/upload/single',fd,id)}
-    async function upM(f,id){var r=await api('/api/upload/init',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:f.name,size:f.size,path:currentPath})});if(!r||!r.ok)throw new Error('初始化失败');var d=await r.json(),uid=d.uploadId,key=d.key;var tp=Math.ceil(f.size/PS),parts=[],pp=new Array(tp).fill(0),t0=Date.now(),q=[];for(var i=0;i<tp;i++){(function(pi,pn){var s=pi*PS,e=Math.min(s+PS,f.size),ch=f.slice(s,e);q.push(function(){return new Promise(function(ok,no){var fd=new FormData();fd.append('uploadId',uid);fd.append('key',key);fd.append('partNumber',String(pn));fd.append('chunk',ch);var x=new XMLHttpRequest();x.open('POST','/api/upload/part');var tk=localStorage.getItem('iodrive_token');if(tk)x.setRequestHeader('Authorization','Bearer '+tk);x.upload.onprogress=function(ev){if(ev.lengthComputable){pp[pi]=ev.loaded;var td=0;for(var j=0;j<pp.length;j++)td+=pp[j];var el=(Date.now()-t0)/1000,sp=el>0?td/el:0,pct=Math.round(td/f.size*100),rm=sp>0?(f.size-td)/sp:0;prog(id,pct);st(id,fmtS(sp)+' · '+pct+'% (分片 '+pn+'/'+tp+') · '+fmtE(rm))}};x.onload=function(){if(x.status>=200&&x.status<300){parts.push({partNumber:pn,etag:JSON.parse(x.responseText).etag});ok()}else{no(new Error('分片'+pn+'失败'))}};x.onerror=function(){no(new Error('网络错误'))};x.send(fd)})})})(i,i+1)}await conc(q,MC);parts.sort(function(a,b){return a.partNumber-b.partNumber});var cr=await api('/api/upload/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uploadId:uid,key:key,parts:parts})});if(!cr||!cr.ok)throw new Error('完成失败')}
-    async function conc(ts,lim){var ex=new Set();for(var i=0;i<ts.length;i++){let p=ts[i]().then(function(){ex.delete(p)});ex.add(p);if(ex.size>=lim)await Promise.race(ex)}await Promise.all(ex)}
+    async function upM(f,id){var r=await api('/api/upload/init',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:f.name,size:f.size,path:currentPath})});if(!r||!r.ok)throw new Error('初始化失败');var d=await r.json(),uid=d.uploadId,key=d.key;var tp=Math.ceil(f.size/PS),parts=[],pp=new Array(tp).fill(0),t0=Date.now(),q=[];for(var i=0;i<tp;i++){(function(pi,pn){var s=pi*PS,e=Math.min(s+PS,f.size),ch=f.slice(s,e);q.push(function(){return new Promise(function(ok,no){var fd=new FormData();fd.append('uploadId',uid);fd.append('key',key);fd.append('partNumber',String(pn));fd.append('chunk',ch);var x=new XMLHttpRequest();x.open('POST','/api/upload/part');var tk=localStorage.getItem('iodrive_token');if(tk)x.setRequestHeader('Authorization','Bearer '+tk);x.upload.onprogress=function(ev){if(ev.lengthComputable){pp[pi]=ev.loaded;var td=0;for(var j=0;j<pp.length;j++)td+=pp[j];var el=(Date.now()-t0)/1000,sp=el>0?td/el:0,pct=Math.round(td/f.size*100),rm=sp>0?(f.size-td)/sp:0;prog(id,pct);st(id,fmtS(sp)+' · '+pct+'% (分片 '+pn+'/'+tp+') · '+fmtE(rm))}};x.onload=function(){if(x.status>=200&&x.status<300){parts.push({partNumber:pn,etag:JSON.parse(x.responseText).etag});ok()}else{no(new Error('分片'+pn+'失败'))}};x.onerror=function(){no(new Error('网络错误'))};x.send(fd)})})})(i,i+1)}try{await conc(q,MC)}catch(e){api('/api/upload/abort',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uploadId:uid,key:key})}).catch(function(){});throw e}parts.sort(function(a,b){return a.partNumber-b.partNumber});var cr=await api('/api/upload/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uploadId:uid,key:key,parts:parts})});if(!cr||!cr.ok)throw new Error('完成失败')}
+    async function conc(ts,lim){var ex=new Set();for(var i=0;i<ts.length;i++){if(ex.size>=lim)await Promise.race(ex);let p=ts[i]().then(function(){ex.delete(p)}).catch(function(){ex.delete(p)});ex.add(p)}await Promise.all(ex)}
     function prog(id,p){var f=document.querySelector('#'+id+' .fl');if(f)f.style.width=p+'%'}
     function st(id,t){var e=document.querySelector('#'+id+' .st');if(e)e.textContent=t}
     if(!IS_DEMO){

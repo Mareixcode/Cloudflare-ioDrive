@@ -71,8 +71,9 @@ export async function writeUploadLog(
     uploadKeyLabel?: string;
   },
 ) {
-  const engine = await createStorageEngine(env);
-  const parsed = parseUA(info.ua);
+  try {
+    const engine = await createStorageEngine(env);
+    const parsed = parseUA(info.ua);
   const entry: UploadLogEntry = {
     time: new Date().toISOString(),
     key: info.key,
@@ -91,4 +92,7 @@ export async function writeUploadLog(
   };
   const logId = info.source + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
   await engine.put('_ul_logs/' + logId + '.json', JSON.stringify(entry), { contentType: 'application/json' });
+  } catch (e) {
+    console.error('Failed to write upload log:', e);
+  }
 }

@@ -143,6 +143,26 @@ export async function s3CompleteMultipart(
   return res.ok;
 }
 
+/** 取消 S3 多段上传，释放已上传的分片 */
+export async function s3AbortMultipart(
+  cfg: S3Config,
+  key: string,
+  uploadId: string,
+): Promise<boolean> {
+  const { host, url, path } = buildS3Url(cfg, key);
+  const qs = `uploadId=${encodeURIComponent(uploadId)}`;
+  const fullPath = path + '?' + qs;
+  const fullUrl = url + '?' + qs;
+  const headers: Record<string, string> = {
+    'Host': host,
+    'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
+    'x-amz-date': amzDate(),
+  };
+  headers['Authorization'] = await signRequest(cfg, 'DELETE', fullPath, headers, 'UNSIGNED-PAYLOAD');
+  const res = await fetch(fullUrl, { method: 'DELETE', headers });
+  return res.ok;
+}
+
 // ── AWS Signature V4 (header-based) ───────
 
 async function signRequest(

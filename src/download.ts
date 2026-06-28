@@ -56,7 +56,7 @@ downloadRoutes.delete('/logs/:logKey{.+}', jwtAuth, async (c) => {
 });
 
 // ── Dashboard: redirect to R2 (legacy) ─────
-downloadRoutes.get('/url/:key{.+}', async (c) => {
+downloadRoutes.get('/url/:key{.+}', jwtAuth, async (c) => {
   const key = c.req.param('key');
   const r2Domain = c.env.R2_PUBLIC_DOMAIN;
   const encoded = key.split('/').map(encodeURIComponent).join('/');

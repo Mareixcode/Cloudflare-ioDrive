@@ -12,11 +12,13 @@ let _runtimeConfig: { backends: StorageBackendConfig[]; credentials: Record<stri
  */
 async function loadRuntimeConfig(drive: R2Bucket): Promise<typeof _runtimeConfig> {
   try {
+    if (_runtimeConfig) return _runtimeConfig;
     const obj = await drive.get('_config/storage.json');
     if (!obj) return null;
     const data = JSON.parse(await obj.text());
     if (data.backends?.length > 0) {
-      return { backends: data.backends, credentials: data.credentials || {} };
+      _runtimeConfig = { backends: data.backends, credentials: data.credentials || {} };
+      return _runtimeConfig;
     }
     return null;
   } catch {

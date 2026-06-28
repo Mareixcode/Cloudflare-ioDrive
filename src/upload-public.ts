@@ -5,7 +5,7 @@ import { getContentType, uniqueKey } from './upload-utils';
 import { writeUploadLog } from './upload-logs';
 import { getAllS3ConfigsAsync } from './storage';
 import { createStorageEngine } from './storage-engine';
-import { s3PutObject, s3CreateMultipart, s3UploadPart, s3CompleteMultipart } from './s3-upload';
+import { s3PutObject, s3CreateMultipart, s3UploadPart, s3CompleteMultipart, s3AbortMultipart } from './s3-upload';
 
 export const uploadPublicRoutes = new Hono<{ Bindings: Env }>();
 
@@ -53,10 +53,11 @@ uploadPublicRoutes.post('/single', async (c) => {
   // Primary upload
   await engine.put(key2, buf, { contentType });
 
-  // Sync to S3 backends
+  // Sync to other S3 backends（主后端已通过 engine.put 写入）
   const s3Cfgs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
+  const syncCfgs = c.env.DRIVE ? s3Cfgs : s3Cfgs.slice(1);
   let s3Ok = false;
-  for (const s3cfg of s3Cfgs) {
+  for (const s3cfg of syncCfgs) {
     try { const ok = await s3PutObject(s3cfg, key2, buf, contentType); if (ok) s3Ok = true; } catch (e) { console.error('S3 upload error:', e); }
   }
 
@@ -250,6 +251,21 @@ uploadPublicRoutes.post('/abort', async (c) => {
   if (c.env.DRIVE) {
     const r2mp = c.env.DRIVE.resumeMultipartUpload(key, uploadId);
     await r2mp.abort();
+  }
+
+  // 取消 S3 后端的多段上传
+  const mpMeta = await engine.get('_multipart/' + uploadId + '.json').catch(() => null);
+  if (mpMeta) {
+    try {
+      const mpData = JSON.parse(await mpMeta.text());
+      if (mpData.s3UploadIds) {
+        const s3Cfgs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
+        for (const s3cfg of s3Cfgs) {
+          const s3Uid = mpData.s3UploadIds?.[s3cfg.bucket];
+          if (s3Uid) s3AbortMultipart(s3cfg, key, s3Uid).catch(() => {});
+        }
+      }
+    } catch {}
   }
 
   await engine.delete('_multipart/' + uploadId + '.json').catch(() => {});

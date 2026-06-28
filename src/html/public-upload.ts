@@ -171,7 +171,7 @@ export function renderPublicUploadPage(siteKey: string): string {
           });
         })(i,i+1);
       }
-      await conc(q,MC);
+      try{await conc(q,MC)}catch(e){fetch('/api/upload-public/abort',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uploadId:uid,key:key})}).catch(function(){});throw e}
       parts.sort(function(a,b){return a.partNumber-b.partNumber});
       var cr=await fetch('/api/upload-public/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uploadId:uid,key:key,parts:parts})});
       if(!cr.ok)throw new Error('上传完成失败');
@@ -179,7 +179,7 @@ export function renderPublicUploadPage(siteKey: string): string {
 
     async function conc(ts,lim){
       var ex=new Set();
-      for(var i=0;i<ts.length;i++){let p=ts[i]().then(function(){ex.delete(p)});ex.add(p);if(ex.size>=lim)await Promise.race(ex)}
+      for(var i=0;i<ts.length;i++){if(ex.size>=lim)await Promise.race(ex);let p=ts[i]().then(function(){ex.delete(p)}).catch(function(){ex.delete(p)});ex.add(p)}
       await Promise.all(ex);
     }
   </script>

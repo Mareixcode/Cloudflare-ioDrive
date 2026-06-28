@@ -220,7 +220,10 @@ class S3StorageEngine implements StorageEngine {
     headers['Authorization'] = await this.sign('GET', path, headers, 'UNSIGNED-PAYLOAD');
 
     const res = await fetch(`https://${host}${path}`, { method: 'GET', headers });
-    if (!res.ok) return { objects: [], delimitedPrefixes: [], truncated: false };
+    if (!res.ok) {
+      console.error(`S3 ListObjects failed: ${res.status} ${res.statusText} (${prefix})`);
+      return { objects: [], delimitedPrefixes: [], truncated: false };
+    }
 
     const xml = await res.text();
     const objects: ListResult['objects'] = [];
@@ -289,6 +292,7 @@ class S3StorageEngine implements StorageEngine {
       key,
       size: parseInt(res.headers.get('content-length') || '0', 10),
       contentType: res.headers.get('content-type') || undefined,
+      uploaded: res.headers.get('last-modified') || undefined,
     };
   }
 
@@ -359,7 +363,13 @@ class S3StorageEngine implements StorageEngine {
 
   private xmlValue(xml: string, tag: string): string | undefined {
     const match = xml.match(new RegExp(`<${tag}>(.+?)</${tag}>`));
-    return match ? match[1] : undefined;
+    if (!match) return undefined;
+    return match[1]
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
   }
 }
 
