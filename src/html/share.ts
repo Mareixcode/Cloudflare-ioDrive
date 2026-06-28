@@ -94,7 +94,7 @@ export function renderSharePage(token: string, siteKey: string): string {
     <div id="ts-section" class="ts-section">
       <div class="ts-hint">完成验证后即可下载</div>
       <div class="ts-box">
-        <div class="cf-turnstile" data-sitekey="${siteKey}" data-callback="onVerified"></div>
+        <div class="cf-turnstile" data-sitekey="${siteKey.replace(/"/g,'&quot;')}" data-callback="onVerified"></div>
       </div>
     </div>
 
@@ -126,7 +126,8 @@ export function renderSharePage(token: string, siteKey: string): string {
   </div>
 
   <script>
-    var SHARE_TOKEN='${token}';
+    function _js(s){return s.replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'").replace(/</g,'\\x3c')}
+    var SHARE_TOKEN=_js('${token}');
     var r2Url='',s3Url='',dlName='',logKey='';
 
     // Load share info (NO URL exposed)
@@ -185,7 +186,7 @@ export function renderSharePage(token: string, siteKey: string): string {
       if(!r2Url)return;
       var btn=document.getElementById('dl-btn');
       btn.classList.add('going');btn.innerHTML='⏳ 正在打开…';
-      window.open(r2Url,'_blank');
+      var a=document.createElement('a');a.href=r2Url;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();
       fireBeacon();
       setTimeout(function(){btn.classList.remove('going');btn.innerHTML='⬇️ 下载'},2000);
     }
@@ -194,7 +195,7 @@ export function renderSharePage(token: string, siteKey: string): string {
       if(!s3Url)return;
       var btn=document.getElementById('dl-btn-s3');
       btn.classList.add('going');btn.innerHTML='⏳ 正在打开…';
-      window.open(s3Url,'_blank');
+      var a=document.createElement('a');a.href=s3Url;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();
       fireBeacon();
       setTimeout(function(){btn.classList.remove('going');btn.innerHTML='📦 S3 下载'},2000);
     }

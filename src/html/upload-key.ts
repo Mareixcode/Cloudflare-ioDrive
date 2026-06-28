@@ -56,7 +56,7 @@ export function renderUploadKeyPage(keyId: string, siteKey: string): string {
       <div class="file-icon">📤</div>
       <div class="title" id="key-label"></div>
       <div class="sub">选择要上传的文件</div>
-      <div class="ts-section"><div class="ts-hint">完成验证后开始上传</div><div class="ts-box"><div class="cf-turnstile" data-sitekey="${siteKey}" data-callback="onTS"></div></div></div>
+      <div class="ts-section"><div class="ts-hint">完成验证后开始上传</div><div class="ts-box"><div class="cf-turnstile" data-sitekey="${siteKey.replace(/"/g,'&quot;')}" data-callback="onTS"></div></div></div>
       <div id="file-area" style="display:none">
         <div class="drop-zone" id="drop-zone"><div class="icon">📁</div>点击选择或拖拽文件到此处</div>
         <div class="file-list" id="file-list"></div>
@@ -70,7 +70,8 @@ export function renderUploadKeyPage(keyId: string, siteKey: string): string {
   </div>
   <input type="file" id="file-input" multiple style="display:none">
   <script>
-    var KEY_ID='${keyId}';
+    function _js(s){return s.replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'").replace(/</g,'\\x3c')}
+    var KEY_ID=_js('${keyId}');
     var tsToken='',uploadPath='uploads/',selectedFiles=[];
     var PS=20*1024*1024,MC=6;
 
@@ -148,7 +149,7 @@ export function renderUploadKeyPage(keyId: string, siteKey: string): string {
       document.getElementById('done-count').textContent='成功 '+ok+' 个'+(fail?'，失败 '+fail+' 个':'');
     }
     function piProg(i,p){var f=document.querySelector('#pi'+i+' .fill');if(f)f.style.width=p+'%'}
-    function piStatus(i,t){var e=document.querySelector('#pi'+i+' .st');if(e)e.textContent=t}
+    function piStatus(i,t){var e=document.querySelector('#pi'+i+' .pi-status');if(e)e.textContent=t}
 
     function xhrUp(url,fd,idx){
       return new Promise(function(ok,no){
@@ -208,7 +209,7 @@ export function renderUploadKeyPage(keyId: string, siteKey: string): string {
 
     async function conc(ts,lim){
       var ex=new Set();
-      for(var i=0;i<ts.length;i++){var p=ts[i]().then(function(){ex.delete(p)});ex.add(p);if(ex.size>=lim)await Promise.race(ex)}
+      for(var i=0;i<ts.length;i++){let p=ts[i]().then(function(){ex.delete(p)});ex.add(p);if(ex.size>=lim)await Promise.race(ex)}
       await Promise.all(ex);
     }
 

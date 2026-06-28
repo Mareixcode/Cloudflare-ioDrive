@@ -422,7 +422,7 @@ export function renderDashboard(isDemo: boolean = false): string {
       </div>
 
       <!-- Storage Add/Edit Modal -->
-      <div id="storage-modal" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.4);backdrop-filter:blur(2px);display:none;align-items:center;justify-content:center">
+      <div id="storage-modal" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.4);backdrop-filter:blur(2px);align-items:center;justify-content:center">
         <div style="background:var(--card);border-radius:16px;box-shadow:var(--modal-shadow);width:520px;max-width:calc(100vw - 32px);max-height:90vh;overflow-y:auto">
           <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
             <div style="font-size:15px;font-weight:700" id="storage-modal-title">添加存储后端</div>
@@ -513,7 +513,7 @@ export function renderDashboard(isDemo: boolean = false): string {
     function fi(n){var e=n.split('.').pop().toLowerCase(),m={pdf:'\\u{1F4C4}',doc:'\\u{1F4DD}',txt:'\\u{1F4DD}',jpg:'\\u{1F5BC}',png:'\\u{1F5BC}',mp4:'\\u{1F3AC}',mp3:'\\u{1F3B5}',zip:'\\u{1F4E6}',rar:'\\u{1F4E6}',exe:'\\u2699\\uFE0F'};return m[e]||'\\u{1F4C4}'}
     function fmtTime(iso){var d=new Date(iso);return d.toLocaleDateString('zh-CN')+' '+d.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}
     function relTime(iso){var d=new Date(iso),now=new Date(),diff=(now.getTime()-d.getTime())/1000;if(diff<60)return'刚刚';if(diff<3600)return Math.floor(diff/60)+' 分钟前';if(diff<86400)return Math.floor(diff/3600)+' 小时前';if(diff<604800)return Math.floor(diff/86400)+' 天前';return fmtTime(iso)}
-    function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+    function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
     function trunc(s,n){if(!s||s.length<=n)return s;return s.slice(0,n)+'…'}
     function checkDlScroll(){var w=document.getElementById('dl-table-wrap'),t=w?w.querySelector('table'):null;if(!w||!t)return;w.classList.toggle('can-scroll',t.scrollWidth>w.clientWidth)}
 
@@ -821,7 +821,7 @@ export function renderDashboard(isDemo: boolean = false): string {
     function xhrUp(url,fd,id){return new Promise(function(ok,no){var x=new XMLHttpRequest(),t0=Date.now();x.open('POST',url);var tk=localStorage.getItem('iodrive_token');if(tk)x.setRequestHeader('Authorization','Bearer '+tk);x.upload.onprogress=function(e){if(e.lengthComputable){var el=(Date.now()-t0)/1000,sp=el>0?e.loaded/el:0,pct=Math.round(e.loaded/e.total*100),rm=sp>0?(e.total-e.loaded)/sp:0;prog(id,pct);st(id,fmtS(sp)+' · '+pct+'% · 剩余 '+fmtE(rm))}};x.onload=function(){if(x.status>=200&&x.status<300){try{ok(JSON.parse(x.responseText))}catch{ok(x.responseText)}}else{try{no(new Error(JSON.parse(x.responseText).error))}catch{no(new Error('失败 '+x.status))}}};x.onerror=function(){no(new Error('网络错误'))};x.send(fd)})}
     async function upS(f,id){var fd=new FormData();fd.append('file',f);fd.append('path',currentPath);await xhrUp('/api/upload/single',fd,id)}
     async function upM(f,id){var r=await api('/api/upload/init',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:f.name,size:f.size,path:currentPath})});if(!r||!r.ok)throw new Error('初始化失败');var d=await r.json(),uid=d.uploadId,key=d.key;var tp=Math.ceil(f.size/PS),parts=[],pp=new Array(tp).fill(0),t0=Date.now(),q=[];for(var i=0;i<tp;i++){(function(pi,pn){var s=pi*PS,e=Math.min(s+PS,f.size),ch=f.slice(s,e);q.push(function(){return new Promise(function(ok,no){var fd=new FormData();fd.append('uploadId',uid);fd.append('key',key);fd.append('partNumber',String(pn));fd.append('chunk',ch);var x=new XMLHttpRequest();x.open('POST','/api/upload/part');var tk=localStorage.getItem('iodrive_token');if(tk)x.setRequestHeader('Authorization','Bearer '+tk);x.upload.onprogress=function(ev){if(ev.lengthComputable){pp[pi]=ev.loaded;var td=0;for(var j=0;j<pp.length;j++)td+=pp[j];var el=(Date.now()-t0)/1000,sp=el>0?td/el:0,pct=Math.round(td/f.size*100),rm=sp>0?(f.size-td)/sp:0;prog(id,pct);st(id,fmtS(sp)+' · '+pct+'% (分片 '+pn+'/'+tp+') · '+fmtE(rm))}};x.onload=function(){if(x.status>=200&&x.status<300){parts.push({partNumber:pn,etag:JSON.parse(x.responseText).etag});ok()}else{no(new Error('分片'+pn+'失败'))}};x.onerror=function(){no(new Error('网络错误'))};x.send(fd)})})})(i,i+1)}await conc(q,MC);parts.sort(function(a,b){return a.partNumber-b.partNumber});var cr=await api('/api/upload/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uploadId:uid,key:key,parts:parts})});if(!cr||!cr.ok)throw new Error('完成失败')}
-    async function conc(ts,lim){var ex=new Set();for(var i=0;i<ts.length;i++){var p=ts[i]().then(function(){ex.delete(p)});ex.add(p);if(ex.size>=lim)await Promise.race(ex)}await Promise.all(ex)}
+    async function conc(ts,lim){var ex=new Set();for(var i=0;i<ts.length;i++){let p=ts[i]().then(function(){ex.delete(p)});ex.add(p);if(ex.size>=lim)await Promise.race(ex)}await Promise.all(ex)}
     function prog(id,p){var f=document.querySelector('#'+id+' .fl');if(f)f.style.width=p+'%'}
     function st(id,t){var e=document.querySelector('#'+id+' .st');if(e)e.textContent=t}
     if(!IS_DEMO){
@@ -855,7 +855,8 @@ export function renderDashboard(isDemo: boolean = false): string {
       var r=await api('/api/download/presign/'+key.split('/').map(encodeURIComponent).join('/'));
       if(!r||!r.ok)return;
       var d=await r.json();
-      window.open(d.url,'_blank');
+      // 使用 <a> 标签下载，避免 window.open 被弹窗拦截
+      var a=document.createElement('a');a.href=d.url;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();
       if(d.logKey){
         setTimeout(function(){try{navigator.sendBeacon('/api/download/beacon',JSON.stringify({logKey:d.logKey,event:'complete'}))}catch(e){}},5000);
       }
@@ -1141,7 +1142,8 @@ export function renderDashboard(isDemo: boolean = false): string {
         r=await api('/api/storage/backends',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
       }
       if(r&&r.ok){closeStorageModal();loadStorageBackends()}
-      else{var e=await r.json().catch(function(){return{error:'操作失败'}});alert(e.error||'操作失败')}
+      else if(r){var e=await r.json().catch(function(){return{error:'操作失败'}});alert(e.error||'操作失败')}
+      else{alert('网络异常，请重试')}
     }
 
     async function deleteStorageBackend(name){

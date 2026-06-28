@@ -81,10 +81,19 @@ filesRoutes.post('/folder', async (c) => {
   return c.json({ ok: true, path: folderKey });
 });
 
+// 校验 key 不允许操作内部元数据（以 _ 开头的路径）
+function assertValidKey(key: string): void {
+  if (key.startsWith('_')) throw new Error('不允许操作内部文件');
+}
+function assertValidKeys(keys: string[]): void {
+  for (const k of keys) assertValidKey(k);
+}
+
 // Delete file or folder
 filesRoutes.delete('/:key{.+}', async (c) => {
   const engine = await createStorageEngine(c.env);
   const key = c.req.param('key');
+  assertValidKey(key);
   if (key.endsWith('/')) {
     const listed = await engine.list(key);
     const keys = listed.objects.map((o) => o.key);
@@ -101,6 +110,7 @@ filesRoutes.post('/batch-delete', async (c) => {
   const engine = await createStorageEngine(c.env);
   const { keys } = await c.req.json<{ keys: string[] }>();
   if (!keys?.length) return c.json({ error: 'no keys' }, 400);
+  assertValidKeys(keys);
   const expanded: string[] = [];
   for (const key of keys) {
     if (key.endsWith('/')) {
@@ -123,13 +133,16 @@ filesRoutes.post('/move', async (c) => {
   const engine = await createStorageEngine(c.env);
   const { keys, targetPath } = await c.req.json<{ keys: string[]; targetPath: string }>();
   if (!keys?.length || !targetPath) return c.json({ error: 'no keys or target' }, 400);
+  assertValidKeys(keys);
   for (const key of keys) {
     if (key.endsWith('/')) continue;
     const obj = await engine.get(key);
     if (!obj) continue;
+    const head = await engine.head(key);
+    const contentType = head?.contentType || 'application/octet-stream';
     const filename = key.split('/').pop() || key;
     const newKey = await uniqueKey(engine, targetPath, filename);
-    await engine.put(newKey, await obj.arrayBuffer(), { contentType: 'application/octet-stream' });
+    await engine.put(newKey, await obj.arrayBuffer(), { contentType });
     await engine.delete(key);
   }
   return c.json({ ok: true });

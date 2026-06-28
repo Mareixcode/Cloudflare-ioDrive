@@ -52,7 +52,7 @@ export function renderPublicUploadPage(siteKey: string): string {
     <div class="file-icon">📤</div>
     <div class="title">上传文件</div>
     <div class="sub">公开上传 · 无需账号</div>
-    <div class="ts-section"><div class="ts-hint">完成验证后开始上传</div><div class="ts-box"><div class="cf-turnstile" data-sitekey="${siteKey}" data-callback="onTS"></div></div></div>
+    <div class="ts-section"><div class="ts-hint">完成验证后开始上传</div><div class="ts-box"><div class="cf-turnstile" data-sitekey="${siteKey.replace(/"/g,'&quot;')}" data-callback="onTS"></div></div></div>
     <div id="file-area" style="display:none">
       <div class="drop-zone" id="drop-zone"><div class="icon">📁</div>点击选择或拖拽文件到此处</div>
       <div class="file-list" id="file-list"></div>
@@ -179,7 +179,7 @@ export function renderPublicUploadPage(siteKey: string): string {
 
     async function conc(ts,lim){
       var ex=new Set();
-      for(var i=0;i<ts.length;i++){var p=ts[i]().then(function(){ex.delete(p)});ex.add(p);if(ex.size>=lim)await Promise.race(ex)}
+      for(var i=0;i<ts.length;i++){let p=ts[i]().then(function(){ex.delete(p)});ex.add(p);if(ex.size>=lim)await Promise.race(ex)}
       await Promise.all(ex);
     }
   </script>

@@ -52,7 +52,7 @@ export function renderLogin(siteKey: string): string {
     <p class="sub">输入账号和密码以继续</p>
     <div class="field"><label>用户名</label><input type="text" id="username" placeholder="admin" autocomplete="username"></div>
     <div class="field"><label>密码</label><input type="password" id="password" placeholder="密码" autocomplete="current-password"></div>
-    <div class="cf-wrap"><div class="cf-turnstile" data-sitekey="${siteKey}" data-callback="onTS"></div></div>
+    <div class="cf-wrap"><div class="cf-turnstile" data-sitekey="${siteKey.replace(/"/g,'&quot;')}" data-callback="onTS"></div></div>
     <button class="submit" id="login-btn" disabled>登录</button>
     <div class="err" id="login-error"></div>
   </div>

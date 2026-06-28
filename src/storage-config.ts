@@ -169,8 +169,8 @@ storageConfigRoutes.put('/backends/:name', async (c) => {
     }
   }
 
-  // 重新检测路径风格（如果 endpoint 或 provider 变了）
-  if (body.endpoint || body.provider) {
+  // 重新检测路径风格（如果 endpoint 或 provider 变了，且用户未显式指定 pathStyle）
+  if ((body.endpoint || body.provider) && body.pathStyle === undefined) {
     backend.pathStyle = detectPathStyle(backend.endpoint, backend.provider);
   }
 

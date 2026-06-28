@@ -332,7 +332,13 @@ class S3StorageEngine implements StorageEngine {
       },
       async complete(completeParts: { partNumber: number; etag: string }[]) {
         await s3CompleteMultipart(cfg, key, uploadId, completeParts);
-        return { key, size: 0 };
+        // 获取完成后的对象大小
+        let size = 0;
+        try {
+          const head = await self.head(key);
+          if (head) size = head.size;
+        } catch {}
+        return { key, size };
       },
       async abort() {
         // S3 AbortMultipartUpload

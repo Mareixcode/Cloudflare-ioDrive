@@ -80,9 +80,14 @@ uploadKeyPublicRoutes.get('/validate/:id', async (c) => {
 
 function generateId(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  const arr = new Uint8Array(12);
+  const arr = new Uint8Array(16);
+  let result = '', idx = 0;
   crypto.getRandomValues(arr);
-  let result = '';
-  for (let i = 0; i < arr.length; i++) result += chars[arr[i] % chars.length];
+  for (let i = 0; i < 12; i++) {
+    while (idx < arr.length && arr[idx] >= 248) idx++;
+    if (idx >= arr.length) { crypto.getRandomValues(arr); idx = 0; }
+    result += chars[arr[idx] % chars.length];
+    idx++;
+  }
   return result;
 }

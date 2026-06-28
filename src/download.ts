@@ -70,22 +70,41 @@ downloadRoutes.get('/presign/:key{.+}', jwtAuth, async (c) => {
   const head = await engine.head(key);
   if (!head) return c.json({ error: '文件不存在' }, 404);
 
-  if (!c.env.R2_ACCESS_KEY || !c.env.R2_SECRET_KEY) {
-    return c.json({ error: 'R2 凭证未配置（R2_ACCESS_KEY / R2_SECRET_KEY）' }, 500);
-  }
-
   const ip = c.req.header('CF-Connecting-IP') || '';
   const ua = c.req.header('User-Agent') || '';
   const parsed = parseUA(ua);
   const name = key.split('/').pop() || key;
 
-  const r2AccountId = c.env.R2_ACCOUNT_ID;
-  const r2Url = await generatePresignedUrl(
-    r2AccountId + '.r2.cloudflarestorage.com',
-    c.env.R2_BUCKET, 'auto',
-    c.env.R2_ACCESS_KEY, c.env.R2_SECRET_KEY,
-    key, 300, name,
-  );
+  // 预签名 URL：优先 R2，无 R2 凭证时回退到 S3
+  let presignedUrl: string | null = null;
+  let source = 'r2';
+
+  if (c.env.R2_ACCESS_KEY && c.env.R2_SECRET_KEY && c.env.R2_ACCOUNT_ID) {
+    const r2AccountId = c.env.R2_ACCOUNT_ID;
+    presignedUrl = await generatePresignedUrl(
+      r2AccountId + '.r2.cloudflarestorage.com',
+      c.env.R2_BUCKET, 'auto',
+      c.env.R2_ACCESS_KEY, c.env.R2_SECRET_KEY,
+      key, 300, name,
+    );
+  } else {
+    // 回退到 S3 后端
+    const s3Configs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
+    if (s3Configs.length > 0) {
+      const cfg = s3Configs[0];
+      presignedUrl = await generatePresignedUrl(
+        cfg.endpoint, cfg.bucket, cfg.region,
+        cfg.accessKey, cfg.secretKey,
+        key, 300, name,
+        cfg.pathStyle,
+      );
+      source = 's3';
+    }
+  }
+
+  if (!presignedUrl) {
+    return c.json({ error: '存储凭证未配置（需要 R2 或 S3 凭证）' }, 500);
+  }
 
   const logEntry: DownloadLogEntry = {
     time: new Date().toISOString(),
@@ -96,7 +115,7 @@ downloadRoutes.get('/presign/:key{.+}', jwtAuth, async (c) => {
     country: c.req.header('CF-IPCountry') || '',
     ua,
     shareToken: 'direct',
-    source: 'r2',
+    source,
     referer: c.req.header('Referer') || '',
     browser: parsed.browser,
     os: parsed.os,
@@ -106,7 +125,7 @@ downloadRoutes.get('/presign/:key{.+}', jwtAuth, async (c) => {
   const logKey = '_dl_logs/' + logId + '.json';
   await engine.put(logKey, JSON.stringify(logEntry), { contentType: 'application/json' });
 
-  return c.json({ url: r2Url, logKey, name, size: head.size });
+  return c.json({ url: presignedUrl, logKey, name, size: head.size });
 });
 
 // ── Share: Turnstile verified → presigned URLs ──
@@ -206,6 +225,11 @@ downloadRoutes.post('/beacon', async (c) => {
   const engine = await createStorageEngine(c.env);
   const { logKey, event } = await c.req.json<{ logKey: string; event: string }>();
   if (!logKey || !event) return c.json({ error: 'missing params' }, 400);
+
+  // 校验 logKey 必须以 _dl_logs/ 开头，防止读写任意对象
+  if (!logKey.startsWith('_dl_logs/')) {
+    return c.json({ error: 'invalid log key' }, 400);
+  }
 
   if (event === 'complete') {
     try {

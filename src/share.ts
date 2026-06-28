@@ -112,10 +112,15 @@ shareRoutes.post('/batch', async (c) => {
 function generateToken(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let result = '';
-  const arr = new Uint8Array(12);
+  // 使用拒绝采样避免模数偏差：256 - (256 % 62) = 248，值 >= 248 时重新采样
+  const arr = new Uint8Array(16);
+  let idx = 0;
   crypto.getRandomValues(arr);
-  for (let i = 0; i < arr.length; i++) {
-    result += chars[arr[i] % chars.length];
+  for (let i = 0; i < 12; i++) {
+    while (idx < arr.length && arr[idx] >= 248) idx++;
+    if (idx >= arr.length) { crypto.getRandomValues(arr); idx = 0; }
+    result += chars[arr[idx] % chars.length];
+    idx++;
   }
   return result;
 }

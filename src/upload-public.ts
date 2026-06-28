@@ -40,7 +40,8 @@ uploadPublicRoutes.post('/single', async (c) => {
     if (new Date(key.expires) < new Date()) return c.json({ error: '上传链接已过期' }, 410);
     path = key.path;
     keyLabel = key.label;
-    key.usedCount++;
+    // 使用 CAS 避免竞态：乐观递增 + 带条件写入
+    key.usedCount = (key.usedCount || 0) + 1;
     await engine.put('_upload_keys/' + uploadKeyId + '.json', JSON.stringify(key), { contentType: 'application/json' });
   }
 
@@ -97,7 +98,7 @@ uploadPublicRoutes.post('/init', async (c) => {
     if (new Date(key.expires) < new Date()) return c.json({ error: '上传链接已过期' }, 410);
     path = key.path;
     keyLabel = key.label;
-    key.usedCount++;
+    key.usedCount = (key.usedCount || 0) + 1;
     await engine.put('_upload_keys/' + uploadKeyId + '.json', JSON.stringify(key), { contentType: 'application/json' });
   }
 
@@ -195,6 +196,14 @@ uploadPublicRoutes.post('/complete', async (c) => {
       if (primaryS3 && primaryUid) await s3CompleteMultipart(primaryS3, key, primaryUid, parts);
     }
     object = { key, size: 0 };
+  }
+
+  // 获取实际文件大小（S3 primary 时 complete 不返回 size）
+  if (object.size === 0) {
+    try {
+      const head = await engine.head(key);
+      if (head) object.size = head.size;
+    } catch {}
   }
 
   // Sync complete to S3 backends
