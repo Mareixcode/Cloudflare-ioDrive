@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env, UploadLogEntry } from './types';
 import { jwtAuth } from './auth';
 import { parseUA } from './ua-parser';
+import { createStorageEngine } from './storage-engine';
 
 export const uploadLogRoutes = new Hono<{ Bindings: Env }>();
 
@@ -9,11 +10,12 @@ uploadLogRoutes.use('*', jwtAuth);
 
 // ── List upload logs ──
 uploadLogRoutes.get('/logs', async (c) => {
-  const listed = await c.env.DRIVE.list({ prefix: '_ul_logs/', limit: 500 });
+  const engine = await createStorageEngine(c.env);
+  const listed = await engine.list('_ul_logs/', { limit: 500 });
   const logs: any[] = [];
   for (const obj of listed.objects) {
     try {
-      const data = await c.env.DRIVE.get(obj.key);
+      const data = await engine.get(obj.key);
       if (data) {
         const entry = JSON.parse(await data.text());
         entry.logKey = obj.key;
@@ -27,13 +29,14 @@ uploadLogRoutes.get('/logs', async (c) => {
 
 // ── Clear all upload logs ──
 uploadLogRoutes.delete('/logs', async (c) => {
+  const engine = await createStorageEngine(c.env);
   let deleted = 0;
   let cursor: string | undefined;
   do {
-    const listed = await c.env.DRIVE.list({ prefix: '_ul_logs/', limit: 1000, cursor });
+    const listed = await engine.list('_ul_logs/', { limit: 1000, cursor });
     const keys = listed.objects.map((o) => o.key);
     if (keys.length > 0) {
-      await c.env.DRIVE.delete(keys);
+      await engine.delete(keys);
       deleted += keys.length;
     }
     cursor = listed.truncated ? listed.cursor : undefined;
@@ -43,11 +46,12 @@ uploadLogRoutes.delete('/logs', async (c) => {
 
 // ── Delete single upload log ──
 uploadLogRoutes.delete('/logs/:logKey{.+}', async (c) => {
+  const engine = await createStorageEngine(c.env);
   const logKey = c.req.param('logKey');
   if (!logKey.startsWith('_ul_logs/')) {
     return c.json({ error: 'invalid log key' }, 400);
   }
-  await c.env.DRIVE.delete(logKey);
+  await engine.delete(logKey);
   return c.json({ ok: true });
 });
 
@@ -67,6 +71,7 @@ export async function writeUploadLog(
     uploadKeyLabel?: string;
   },
 ) {
+  const engine = await createStorageEngine(env);
   const parsed = parseUA(info.ua);
   const entry: UploadLogEntry = {
     time: new Date().toISOString(),
@@ -85,7 +90,5 @@ export async function writeUploadLog(
     deviceType: parsed.deviceType,
   };
   const logId = info.source + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-  await env.DRIVE.put('_ul_logs/' + logId + '.json', JSON.stringify(entry), {
-    httpMetadata: { contentType: 'application/json' },
-  });
+  await engine.put('_ul_logs/' + logId + '.json', JSON.stringify(entry), { contentType: 'application/json' });
 }

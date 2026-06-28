@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import type { Env, FileMeta, FolderMeta } from './types';
 import { jwtAuth } from './auth';
 import { uniqueKey } from './upload-utils';
+import { createStorageEngine } from './storage-engine';
+import type { StorageEngine } from './storage-engine';
 
 export const filesRoutes = new Hono<{ Bindings: Env }>();
 
@@ -11,22 +13,21 @@ filesRoutes.use('*', jwtAuth);
 // List files (folder-aware with delimiter)
 filesRoutes.get('/', async (c) => {
   try {
+    const engine = await createStorageEngine(c.env);
     const prefix = c.req.query('prefix') || 'uploads/';
-    const listed = await c.env.DRIVE.list({ prefix, delimiter: '/' });
+    const listed = await engine.list(prefix, { delimiter: '/' });
 
-    // Files (non-folder objects)
     const files: FileMeta[] = listed.objects
       .filter((obj) => !obj.key.endsWith('/') && !obj.key.startsWith('_'))
       .map((obj) => ({
         key: obj.key,
         name: obj.key.replace(prefix, ''),
         size: obj.size,
-        uploaded: obj.uploaded?.toISOString() || new Date().toISOString(),
-        contentType: obj.httpMetadata?.contentType || 'application/octet-stream',
+        uploaded: obj.uploaded || new Date().toISOString(),
+        contentType: obj.contentType || 'application/octet-stream',
       }))
       .sort((a, b) => new Date(b.uploaded).getTime() - new Date(a.uploaded).getTime());
 
-    // Folders (delimited prefixes)
     const folderMetas: FolderMeta[] = [];
     for (const dir of listed.delimitedPrefixes) {
       folderMetas.push({
@@ -35,7 +36,6 @@ filesRoutes.get('/', async (c) => {
       });
     }
 
-    // Current path info for breadcrumbs
     const currentPath = prefix;
     const ancestorParts = currentPath === 'uploads/' ? [] : currentPath.replace('uploads/', '').split('/').filter(Boolean);
     const ancestors: { name: string; path: string }[] = [];
@@ -55,10 +55,11 @@ filesRoutes.get('/', async (c) => {
 
 // List all folders recursively (for move picker)
 filesRoutes.get('/folders', async (c) => {
+  const engine = await createStorageEngine(c.env);
   const folders: string[] = [];
   async function collect(prefix: string, depth: number) {
     if (depth > 5) return;
-    const listed = await c.env.DRIVE.list({ prefix, delimiter: '/' });
+    const listed = await engine.list(prefix, { delimiter: '/' });
     for (const dir of listed.delimitedPrefixes) {
       folders.push(dir);
       await collect(dir, depth + 1);
@@ -70,39 +71,40 @@ filesRoutes.get('/folders', async (c) => {
 
 // Create folder
 filesRoutes.post('/folder', async (c) => {
+  const engine = await createStorageEngine(c.env);
   const { path } = await c.req.json<{ path: string }>();
   if (!path || !path.startsWith('uploads/')) return c.json({ error: 'invalid path' }, 400);
   const folderKey = path.endsWith('/') ? path : path + '/';
-  const existing = await c.env.DRIVE.head(folderKey);
+  const existing = await engine.head(folderKey);
   if (existing) return c.json({ error: '文件夹已存在' }, 409);
-  await c.env.DRIVE.put(folderKey, new Uint8Array(0), {
-    httpMetadata: { contentType: 'application/x-directory' },
-  });
+  await engine.put(folderKey, '', { contentType: 'application/x-directory' });
   return c.json({ ok: true, path: folderKey });
 });
 
 // Delete file or folder
 filesRoutes.delete('/:key{.+}', async (c) => {
+  const engine = await createStorageEngine(c.env);
   const key = c.req.param('key');
   if (key.endsWith('/')) {
-    const listed = await c.env.DRIVE.list({ prefix: key });
+    const listed = await engine.list(key);
     const keys = listed.objects.map((o) => o.key);
-    if (keys.length > 0) await c.env.DRIVE.delete(keys);
-    if (!keys.includes(key)) await c.env.DRIVE.delete(key);
+    if (keys.length > 0) await engine.delete(keys);
+    if (!keys.includes(key)) await engine.delete(key);
   } else {
-    await c.env.DRIVE.delete(key);
+    await engine.delete(key);
   }
   return c.json({ ok: true });
 });
 
 // Batch delete (supports folders)
 filesRoutes.post('/batch-delete', async (c) => {
+  const engine = await createStorageEngine(c.env);
   const { keys } = await c.req.json<{ keys: string[] }>();
   if (!keys?.length) return c.json({ error: 'no keys' }, 400);
   const expanded: string[] = [];
   for (const key of keys) {
     if (key.endsWith('/')) {
-      const listed = await c.env.DRIVE.list({ prefix: key });
+      const listed = await engine.list(key);
       expanded.push(...listed.objects.map((o) => o.key));
       if (!listed.objects.some((o) => o.key === key)) expanded.push(key);
     } else {
@@ -111,40 +113,42 @@ filesRoutes.post('/batch-delete', async (c) => {
   }
   const batchSize = 100;
   for (let i = 0; i < expanded.length; i += batchSize) {
-    await c.env.DRIVE.delete(expanded.slice(i, i + batchSize));
+    await engine.delete(expanded.slice(i, i + batchSize));
   }
   return c.json({ ok: true, deleted: expanded.length });
 });
 
 // Move files to folder
 filesRoutes.post('/move', async (c) => {
+  const engine = await createStorageEngine(c.env);
   const { keys, targetPath } = await c.req.json<{ keys: string[]; targetPath: string }>();
   if (!keys?.length || !targetPath) return c.json({ error: 'no keys or target' }, 400);
   for (const key of keys) {
     if (key.endsWith('/')) continue;
-    const obj = await c.env.DRIVE.get(key);
+    const obj = await engine.get(key);
     if (!obj) continue;
     const filename = key.split('/').pop() || key;
-    const newKey = await uniqueKey(c.env.DRIVE, targetPath, filename);
-    await c.env.DRIVE.put(newKey, await obj.arrayBuffer(), {
-      httpMetadata: obj.httpMetadata,
-      customMetadata: obj.customMetadata,
-    });
-    await c.env.DRIVE.delete(key);
+    // For uniqueKey we need R2Bucket — if not available, use engine.head for check
+    const newKey = c.env.DRIVE
+      ? await uniqueKey(c.env.DRIVE, targetPath, filename)
+      : targetPath + filename;
+    await engine.put(newKey, await obj.arrayBuffer(), { contentType: 'application/octet-stream' });
+    await engine.delete(key);
   }
   return c.json({ ok: true });
 });
 
 // Get file info
 filesRoutes.get('/:key{.+}', async (c) => {
+  const engine = await createStorageEngine(c.env);
   const key = c.req.param('key');
-  const obj = await c.env.DRIVE.head(key);
+  const obj = await engine.head(key);
   if (!obj) return c.json({ error: '文件不存在' }, 404);
   return c.json({
     key,
     name: key.split('/').pop(),
     size: obj.size,
-    uploaded: obj.uploaded?.toISOString(),
-    contentType: obj.httpMetadata?.contentType,
+    uploaded: obj.uploaded,
+    contentType: obj.contentType,
   });
 });

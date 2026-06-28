@@ -1,6 +1,6 @@
 export interface Env {
-  // Bindings
-  DRIVE: R2Bucket;
+  // Bindings (R2 可选：不配置 [[r2_buckets]] 时为 undefined)
+  DRIVE?: R2Bucket;
 
   // Environment variables
   ADMIN_USER: string;

@@ -21,7 +21,8 @@ interface StorageConfigData {
   updatedAt: string;
 }
 
-async function loadConfig(drive: R2Bucket): Promise<StorageConfigData> {
+async function loadConfig(drive: R2Bucket | undefined): Promise<StorageConfigData> {
+  if (!drive) return { backends: [], credentials: {}, updatedAt: '' };
   const obj = await drive.get(CONFIG_KEY);
   if (!obj) return { backends: [], credentials: {}, updatedAt: '' };
   try {
@@ -31,7 +32,8 @@ async function loadConfig(drive: R2Bucket): Promise<StorageConfigData> {
   }
 }
 
-async function saveConfig(drive: R2Bucket, data: StorageConfigData): Promise<void> {
+async function saveConfig(drive: R2Bucket | undefined, data: StorageConfigData): Promise<void> {
+  if (!drive) throw new Error('存储未配置：需要 R2 binding 才能保存配置');
   data.updatedAt = new Date().toISOString();
   await drive.put(CONFIG_KEY, JSON.stringify(data), {
     httpMetadata: { contentType: 'application/json' },

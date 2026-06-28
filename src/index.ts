@@ -89,21 +89,28 @@ Sitemap: https://drive.example.com/sitemap.xml`)
 );
 
 app.get('/sitemap.xml', async (c) => {
-  const listed = await c.env.DRIVE.list({ prefix: '_shares/' });
-  const urls = listed.objects
-    .map((obj) => {
-      const token = obj.key.replace('_shares/', '').replace('.json', '');
-      return `  <url><loc>https://drive.example.com/s/${token}</loc></url>`;
-    })
-    .join('\n');
-  return new Response(
-    `<?xml version="1.0" encoding="UTF-8"?>
+  try {
+    const engine = await (await import('./storage-engine')).createStorageEngine(c.env);
+    const listed = await engine.list('_shares/');
+    const urls = listed.objects
+      .map((obj) => {
+        const token = obj.key.replace('_shares/', '').replace('.json', '');
+        return `  <url><loc>https://drive.example.com/s/${token}</loc></url>`;
+      })
+      .join('\n');
+    return new Response(
+      `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://drive.example.com/login</loc></url>
 ${urls}
 </urlset>`,
-    { headers: { 'Content-Type': 'application/xml; charset=utf-8' } }
-  );
+      { headers: { 'Content-Type': 'application/xml; charset=utf-8' } }
+    );
+  } catch {
+    return new Response('<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>', {
+      headers: { 'Content-Type': 'application/xml; charset=utf-8' },
+    });
+  }
 });
 
 app.notFound((c) => c.text('Not Found', 404));

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Env, UploadKey } from './types';
 import { jwtAuth } from './auth';
+import { createStorageEngine } from './storage-engine';
 
 // ── Admin routes (JWT) ──
 export const uploadKeyRoutes = new Hono<{ Bindings: Env }>();
@@ -8,6 +9,7 @@ uploadKeyRoutes.use('*', jwtAuth);
 
 // Create upload key
 uploadKeyRoutes.post('/', async (c) => {
+  const engine = await createStorageEngine(c.env);
   const body = await c.req.json<{ label: string; path: string; expiresHours: number }>();
   const { label, expiresHours } = body;
   let path = body.path || 'uploads/';
@@ -30,20 +32,19 @@ uploadKeyRoutes.post('/', async (c) => {
     active: true,
   };
 
-  await c.env.DRIVE.put('_upload_keys/' + id + '.json', JSON.stringify(key), {
-    httpMetadata: { contentType: 'application/json' },
-  });
+  await engine.put('_upload_keys/' + id + '.json', JSON.stringify(key), { contentType: 'application/json' });
 
   return c.json({ id, url: '/u/' + id, expires: key.expires });
 });
 
 // List upload keys
 uploadKeyRoutes.get('/', async (c) => {
-  const listed = await c.env.DRIVE.list({ prefix: '_upload_keys/' });
+  const engine = await createStorageEngine(c.env);
+  const listed = await engine.list('_upload_keys/');
   const keys: UploadKey[] = [];
   for (const obj of listed.objects) {
     try {
-      const data = await c.env.DRIVE.get(obj.key);
+      const data = await engine.get(obj.key);
       if (data) keys.push(JSON.parse(await data.text()));
     } catch {}
   }
@@ -53,8 +54,9 @@ uploadKeyRoutes.get('/', async (c) => {
 
 // Delete upload key
 uploadKeyRoutes.delete('/:id', async (c) => {
+  const engine = await createStorageEngine(c.env);
   const id = c.req.param('id');
-  await c.env.DRIVE.delete('_upload_keys/' + id + '.json');
+  await engine.delete('_upload_keys/' + id + '.json');
   return c.json({ ok: true });
 });
 
@@ -63,8 +65,9 @@ export const uploadKeyPublicRoutes = new Hono<{ Bindings: Env }>();
 
 // Validate upload key
 uploadKeyPublicRoutes.get('/validate/:id', async (c) => {
+  const engine = await createStorageEngine(c.env);
   const id = c.req.param('id');
-  const data = await c.env.DRIVE.get('_upload_keys/' + id + '.json');
+  const data = await engine.get('_upload_keys/' + id + '.json');
   if (!data) return c.json({ valid: false, error: '链接不存在' });
 
   const key: UploadKey = JSON.parse(await data.text());

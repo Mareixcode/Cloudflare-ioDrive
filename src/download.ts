@@ -4,16 +4,18 @@ import { jwtAuth } from './auth';
 import { parseUA } from './ua-parser';
 import { verifyTurnstile } from './turnstile';
 import { getAllS3ConfigsAsync, detectPathStyle } from './storage';
+import { createStorageEngine } from './storage-engine';
 
 export const downloadRoutes = new Hono<{ Bindings: Env }>();
 
 // ── Download logs (MUST be before /url/:key to avoid wildcard catch) ──
 downloadRoutes.get('/logs', jwtAuth, async (c) => {
-  const listed = await c.env.DRIVE.list({ prefix: '_dl_logs/', limit: 500 });
+  const engine = await createStorageEngine(c.env);
+  const listed = await engine.list('_dl_logs/', { limit: 500 });
   const logs: any[] = [];
   for (const obj of listed.objects) {
     try {
-      const data = await c.env.DRIVE.get(obj.key);
+      const data = await engine.get(obj.key);
       if (data) {
         const entry = JSON.parse(await data.text());
         entry.logKey = obj.key;
@@ -27,13 +29,14 @@ downloadRoutes.get('/logs', jwtAuth, async (c) => {
 
 // ── Clear all download logs (JWT) ──
 downloadRoutes.delete('/logs', jwtAuth, async (c) => {
+  const engine = await createStorageEngine(c.env);
   let deleted = 0;
   let cursor: string | undefined;
   do {
-    const listed = await c.env.DRIVE.list({ prefix: '_dl_logs/', limit: 1000, cursor });
+    const listed = await engine.list('_dl_logs/', { limit: 1000, cursor });
     const keys = listed.objects.map((o) => o.key);
     if (keys.length > 0) {
-      await c.env.DRIVE.delete(keys);
+      await engine.delete(keys);
       deleted += keys.length;
     }
     cursor = listed.truncated ? listed.cursor : undefined;
@@ -43,11 +46,12 @@ downloadRoutes.delete('/logs', jwtAuth, async (c) => {
 
 // ── Delete single download log (JWT) ──
 downloadRoutes.delete('/logs/:logKey{.+}', jwtAuth, async (c) => {
+  const engine = await createStorageEngine(c.env);
   const logKey = c.req.param('logKey');
   if (!logKey.startsWith('_dl_logs/')) {
     return c.json({ error: 'invalid log key' }, 400);
   }
-  await c.env.DRIVE.delete(logKey);
+  await engine.delete(logKey);
   return c.json({ ok: true });
 });
 
@@ -61,8 +65,9 @@ downloadRoutes.get('/url/:key{.+}', async (c) => {
 
 // ── Dashboard: presigned URL with tracking (JWT) ──
 downloadRoutes.get('/presign/:key{.+}', jwtAuth, async (c) => {
+  const engine = await createStorageEngine(c.env);
   const key = c.req.param('key');
-  const head = await c.env.DRIVE.head(key);
+  const head = await engine.head(key);
   if (!head) return c.json({ error: '文件不存在' }, 404);
 
   if (!c.env.R2_ACCESS_KEY || !c.env.R2_SECRET_KEY) {
@@ -99,13 +104,14 @@ downloadRoutes.get('/presign/:key{.+}', jwtAuth, async (c) => {
   };
   const logId = 'direct_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
   const logKey = '_dl_logs/' + logId + '.json';
-  await c.env.DRIVE.put(logKey, JSON.stringify(logEntry), { httpMetadata: { contentType: 'application/json' } });
+  await engine.put(logKey, JSON.stringify(logEntry), { contentType: 'application/json' });
 
   return c.json({ url: r2Url, logKey, name, size: head.size });
 });
 
 // ── Share: Turnstile verified → presigned URLs ──
 downloadRoutes.post('/token', async (c) => {
+  const engine = await createStorageEngine(c.env);
   const body = await c.req.json<{ shareToken: string; turnstile: string }>();
   const { shareToken, turnstile } = body;
 
@@ -116,26 +122,23 @@ downloadRoutes.post('/token', async (c) => {
     return c.json({ error: '人机验证失败' }, 403);
   }
 
-  const shareData = await c.env.DRIVE.get('_shares/' + shareToken + '.json');
+  const shareData = await engine.get('_shares/' + shareToken + '.json');
   if (!shareData) return c.json({ error: '分享链接不存在' }, 404);
 
   const record = JSON.parse(await shareData.text());
   record.downloads = (record.downloads || 0) + 1;
-  await c.env.DRIVE.put('_shares/' + shareToken + '.json', JSON.stringify(record));
+  await engine.put('_shares/' + shareToken + '.json', JSON.stringify(record), { contentType: 'application/json' });
 
-  const head = await c.env.DRIVE.head(record.key);
+  const head = await engine.head(record.key);
   if (!head) return c.json({ error: '文件不存在' }, 404);
 
   // R2 presigned URL
   let r2Url: string | null = null;
-  if (!c.env.R2_ACCESS_KEY || !c.env.R2_SECRET_KEY) {
-    console.error('R2 presign skipped: R2_ACCESS_KEY or R2_SECRET_KEY not configured');
-  } else {
+  if (c.env.R2_ACCESS_KEY && c.env.R2_SECRET_KEY && c.env.R2_ACCOUNT_ID) {
     try {
-      const r2AccountId = c.env.R2_ACCOUNT_ID;
       r2Url = await generatePresignedUrl(
-        r2AccountId + '.r2.cloudflarestorage.com',
-        c.env.R2_BUCKET, 'auto',
+        c.env.R2_ACCOUNT_ID + '.r2.cloudflarestorage.com',
+        c.env.R2_BUCKET || '', 'auto',
         c.env.R2_ACCESS_KEY, c.env.R2_SECRET_KEY,
         record.key, 300, record.name,
       );
@@ -143,9 +146,8 @@ downloadRoutes.post('/token', async (c) => {
       console.error('R2 presign error:', e);
     }
   }
-  if (!r2Url) return c.json({ error: '生成下载链接失败' }, 500);
 
-  // S3 presigned URL (支持多后端 + path-style)
+  // S3 presigned URLs (支持多后端 + path-style)
   const s3Urls: { name: string; url: string }[] = [];
   try {
     const s3Configs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
@@ -165,6 +167,13 @@ downloadRoutes.post('/token', async (c) => {
   } catch (e) {
     console.error('S3 presign error:', e);
   }
+
+  // 如果没有 R2 但有 S3，用第一个 S3 作为主下载链接
+  if (!r2Url && s3Urls.length > 0) {
+    r2Url = s3Urls[0].url;
+  }
+
+  if (!r2Url) return c.json({ error: '生成下载链接失败' }, 500);
 
   // Log download with detailed tracking
   const ua = c.req.header('User-Agent') || '';
@@ -186,27 +195,25 @@ downloadRoutes.post('/token', async (c) => {
   };
   const logId = shareToken + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
   const logKey = '_dl_logs/' + logId + '.json';
-  await c.env.DRIVE.put(logKey, JSON.stringify(logEntry), { httpMetadata: { contentType: 'application/json' } });
+  await engine.put(logKey, JSON.stringify(logEntry), { contentType: 'application/json' });
 
-  // 返回：单个 s3Url（向后兼容）+ s3Urls 数组（多后端）
   const s3Url = s3Urls.length > 0 ? s3Urls[0].url : null;
   return c.json({ r2Url, s3Url, s3Urls, logKey, name: record.name, size: head.size });
 });
 
 // ── Beacon: update download completion status ──
 downloadRoutes.post('/beacon', async (c) => {
+  const engine = await createStorageEngine(c.env);
   const { logKey, event } = await c.req.json<{ logKey: string; event: string }>();
   if (!logKey || !event) return c.json({ error: 'missing params' }, 400);
 
   if (event === 'complete') {
     try {
-      const existing = await c.env.DRIVE.get(logKey);
+      const existing = await engine.get(logKey);
       if (existing) {
         const entry = JSON.parse(await existing.text());
         entry.completed = true;
-        await c.env.DRIVE.put(logKey, JSON.stringify(entry), {
-          httpMetadata: { contentType: 'application/json' },
-        });
+        await engine.put(logKey, JSON.stringify(entry), { contentType: 'application/json' });
       }
     } catch {}
   }
@@ -231,7 +238,6 @@ async function generatePresignedUrl(
   const dateStamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, '').slice(0, 8);
   const amzDate = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, '') + 'Z';
 
-  // 根据 pathStyle 构造 host 和 encodedKey
   const encodedKey = '/' + encodeURIComponent(key).replace(/%2F/g, '/');
   let host: string;
   if (pathStyle) {
@@ -254,7 +260,6 @@ async function generatePresignedUrl(
 
   const canonicalQS = rawParams.map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v)).join('&');
 
-  // path-style 时 canonicalUri 包含 bucket 前缀
   const canonicalUri = pathStyle ? '/' + bucket + encodedKey : encodedKey;
 
   const canonicalRequest = ['GET', canonicalUri, canonicalQS, 'host:' + host + '\n', 'host', 'UNSIGNED-PAYLOAD'].join('\n');
@@ -263,7 +268,6 @@ async function generatePresignedUrl(
   const signature = await hmacHex(signingKey, stringToSign);
   const urlParams = rawParams.map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v)).join('&');
 
-  // 最终 URL
   const urlPath = pathStyle ? '/' + bucket + encodedKey : encodedKey;
   return 'https://' + host + urlPath + '?' + urlParams + '&X-Amz-Signature=' + signature;
 }
