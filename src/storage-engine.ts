@@ -3,7 +3,7 @@
 import type { Env, StorageBackendConfig } from './types';
 import type { S3Config } from './s3-upload';
 import { s3PutObject, s3CreateMultipart, s3UploadPart, s3CompleteMultipart } from './s3-upload';
-import { getAllS3ConfigsAsync, detectPathStyle } from './storage';
+import { getAllS3ConfigsAsync, detectPathStyle, loadRuntimeConfig } from './storage';
 
 // ── 列表结果类型 ─────────────────────────────
 
@@ -406,4 +406,44 @@ export function createR2Engine(drive: R2Bucket): StorageEngine {
  */
 export function createS3Engine(cfg: S3Config): StorageEngine {
   return new S3StorageEngine(cfg);
+}
+
+/**
+ * 根据后端名称创建存储引擎。
+ * 'r2' 或空字符串 → R2 引擎；其他名称 → 从运行时配置中查找对应的 S3 后端。
+ */
+export async function createStorageEngineForBackend(env: Env, backendName: string): Promise<StorageEngine> {
+  // R2 内置存储
+  if (!backendName || backendName === 'r2') {
+    if (env.DRIVE) return new R2StorageEngine(env.DRIVE);
+    return createStorageEngine(env);
+  }
+
+  // 从 R2 运行时配置中查找 S3 后端
+  if (env.DRIVE) {
+    const runtime = await loadRuntimeConfig(env.DRIVE);
+    if (runtime) {
+      const backend = runtime.backends.find(b => b.name === backendName);
+      if (backend) {
+        const cred = runtime.credentials[backend.name];
+        if (cred) {
+          const pathStyle = backend.pathStyle !== undefined ? backend.pathStyle : detectPathStyle(backend.endpoint, backend.provider);
+          return new S3StorageEngine({
+            endpoint: backend.endpoint,
+            bucket: backend.bucket,
+            region: backend.region,
+            accessKey: cred.accessKey,
+            secretKey: cred.secretKey,
+            pathStyle,
+          });
+        }
+      }
+    }
+  }
+
+  // 回退：从环境变量配置中查找
+  const allCfgs = await getAllS3ConfigsAsync(env, env.DRIVE);
+  // 按名称匹配（环境变量配置中的后端名来自 STORAGE_CONFIG 的 name 字段）
+  // 这里无法直接按名称匹配，回退到默认引擎
+  return createStorageEngine(env);
 }

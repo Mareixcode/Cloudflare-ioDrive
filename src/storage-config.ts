@@ -62,7 +62,7 @@ storageConfigRoutes.get('/backends', async (c) => {
     secretKey: data.credentials[b.name]?.secretKey ? '********' : '',
   }));
 
-  return c.json({ backends, updatedAt: data.updatedAt });
+  return c.json({ backends, updatedAt: data.updatedAt, r2Available: !!c.env.DRIVE });
 });
 
 // ── POST /api/storage/backends — 添加新后端 ──
@@ -204,12 +204,16 @@ storageConfigRoutes.post('/test', async (c) => {
     accessKey: string;
     secretKey: string;
     pathStyle?: boolean;
+    provider?: string;
   }>();
 
-  const { endpoint, bucket, region, accessKey, secretKey, pathStyle } = body;
+  const { endpoint, bucket, region, accessKey, secretKey } = body;
   if (!endpoint || !bucket || !region || !accessKey || !secretKey) {
     return c.json({ error: '缺少必填字段' }, 400);
   }
+
+  // 优先使用前端传入的 pathStyle，否则根据 provider/endpoint 自动检测
+  const pathStyle = body.pathStyle !== undefined ? body.pathStyle : detectPathStyle(endpoint, body.provider);
 
   try {
     // 构造 ListObjectsV2 请求来测试连通性
@@ -254,6 +258,80 @@ storageConfigRoutes.post('/test', async (c) => {
     }
   } catch (e: any) {
     return c.json({ ok: false, error: e?.message || String(e) });
+  }
+});
+
+// ── POST /api/storage/status — 检测后端状态 ──
+
+storageConfigRoutes.post('/status', async (c) => {
+  const body = await c.req.json<{ name: string }>();
+  const { name } = body;
+  if (!name) return c.json({ error: '缺少后端名称' }, 400);
+
+  const start = Date.now();
+
+  try {
+    // 检测 R2 内置存储
+    if (name === '_r2_') {
+      if (!c.env.DRIVE) return c.json({ ok: false, error: 'R2 绑定未配置', responseTime: 0 });
+      const listed = await c.env.DRIVE.list({ limit: 1 });
+      const responseTime = Date.now() - start;
+      return c.json({ ok: true, responseTime, fileCount: listed.objects.length > 0 ? '1+' : 0 });
+    }
+
+    // 检测 S3 后端
+    const data = await loadConfig(c.env.DRIVE);
+    const backend = data.backends.find(b => b.name === name);
+    if (!backend) return c.json({ ok: false, error: `后端「${name}」不存在`, responseTime: 0 });
+
+    const cred = data.credentials[name];
+    if (!cred) return c.json({ ok: false, error: '未配置密钥', responseTime: 0 });
+
+    const pathStyle = backend.pathStyle !== undefined ? backend.pathStyle : detectPathStyle(backend.endpoint, backend.provider);
+    const host = pathStyle ? backend.endpoint : `${backend.bucket}.${backend.endpoint}`;
+    const urlPath = pathStyle ? `/${backend.bucket}?list-type=2&max-keys=1` : '/?list-type=2&max-keys=1';
+    const amzDate = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, '') + 'Z';
+    const dateStamp = amzDate.slice(0, 8);
+    const credentialScope = `${dateStamp}/${backend.region}/s3/aws4_request`;
+
+    const headers: Record<string, string> = {
+      'Host': host,
+      'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
+      'x-amz-date': amzDate,
+    };
+
+    const signedHeaderNames = ['host', 'x-amz-content-sha256', 'x-amz-date'];
+    const signedHeaders = signedHeaderNames.join(';');
+    const canonicalHeaders = signedHeaderNames.map(k => `${k}:${headers[k]}`).join('\n') + '\n';
+
+    const canonicalRequest = [
+      'GET', urlPath.split('?')[0], urlPath.split('?')[1] || '',
+      canonicalHeaders, signedHeaders, 'UNSIGNED-PAYLOAD',
+    ].join('\n');
+
+    const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credentialScope, await sha256Hex(canonicalRequest)].join('\n');
+    const signingKey = await getSigningKey(cred.secretKey, dateStamp, backend.region, 's3');
+    const signature = await hmacHex(signingKey, stringToSign);
+
+    headers['Authorization'] = `AWS4-HMAC-SHA256 Credential=${cred.accessKey}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+    const res = await fetch(`https://${host}${urlPath}`, { method: 'GET', headers });
+    const responseTime = Date.now() - start;
+
+    if (res.ok) {
+      const xml = await res.text();
+      // 尝试从 XML 中提取文件数量（简化处理）
+      const isTruncated = xml.includes('<IsTruncated>true</IsTruncated>');
+      const contents = xml.split('<Contents>').length - 1;
+      const prefixes = xml.split('<CommonPrefixes>').length - 1;
+      const count = contents + prefixes;
+      return c.json({ ok: true, responseTime, fileCount: isTruncated ? `${count}+` : count });
+    } else {
+      const errText = await res.text().catch(() => '');
+      return c.json({ ok: false, responseTime, error: `HTTP ${res.status}: ${res.statusText}`, detail: errText.slice(0, 300) });
+    }
+  } catch (e: any) {
+    return c.json({ ok: false, responseTime: Date.now() - start, error: e?.message || String(e) });
   }
 });
 

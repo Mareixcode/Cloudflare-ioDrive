@@ -254,6 +254,9 @@ Every upload is logged in detail:
 | Custom | `custom` | Any S3-compatible service |
 
 - **Dual-Channel Downloads**: Share pages offer presigned download links from all configured backends
+- **Storage Status Detection**: One-click connectivity check for each backend, showing response time and file count
+- **Multi-Backend File Browsing**: Switch between different storage backends in the dashboard to browse files independently
+- **Dynamic Storage Management**: Add, edit, and delete storage backends from the dashboard without modifying environment variables
 
 ### 🌙 User Experience
 
@@ -263,6 +266,7 @@ Every upload is logged in detail:
 - **Upload Progress Bar**: Real-time upload progress (single and multipart)
 - **Clipboard Copy**: One-click copy of share links
 - **Curl / Aria2 Commands**: Auto-generated CLI download commands on share pages
+- **Configurable Admin Account**: Change admin username and password from the dashboard, passwords stored with SHA-256 encryption
 
 ---
 
@@ -1104,6 +1108,9 @@ npm run deploy:demo
 - [x] Dark mode
 - [x] Responsive layout / mobile adaptation
 - [x] Curl / Aria2 CLI download support
+- [x] Multi-backend storage status detection
+- [x] Multi-backend file browsing
+- [x] Configurable admin account credentials
 
 ### 🚧 Planned
 

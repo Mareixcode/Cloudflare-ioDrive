@@ -10,7 +10,7 @@ let _runtimeConfig: { backends: StorageBackendConfig[]; credentials: Record<stri
  * 从 R2 加载运行时存储配置（控制台中配置的）。
  * 如果 R2 中没有配置，返回 null，回退到环境变量。
  */
-async function loadRuntimeConfig(drive: R2Bucket): Promise<typeof _runtimeConfig> {
+export async function loadRuntimeConfig(drive: R2Bucket): Promise<typeof _runtimeConfig> {
   try {
     if (_runtimeConfig) return _runtimeConfig;
     const obj = await drive.get('_config/storage.json');

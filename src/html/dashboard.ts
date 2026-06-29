@@ -27,6 +27,7 @@ export function renderDashboard(isDemo: boolean = false): string {
     .pill .dot{width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--accent-fg);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600}
     .main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
     #page-files,#page-downloads,#page-uploads,#page-uploadkeys{flex:1;display:flex;flex-direction:column;overflow:hidden}
+    #page-account{flex:1;display:flex;flex-direction:column;overflow:hidden}
     #page-downloads>div,#page-uploads>div,#page-shares>div,#page-uploadkeys>div{flex:1;min-height:0}
 
     /* ── Hamburger ── */
@@ -60,6 +61,11 @@ export function renderDashboard(isDemo: boolean = false): string {
     .breadcrumbs .bc-item.bc-cur{color:var(--text);font-weight:500;cursor:default}
     .breadcrumbs .bc-item.bc-cur:hover{background:none}
     .breadcrumbs .bc-sep{color:var(--border);margin:0 2px}
+    .backend-selector{display:flex;align-items:center;gap:6px;padding:6px 24px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--card)}
+    .backend-selector label{font-size:12px;color:var(--sub);font-weight:600;white-space:nowrap}
+    .backend-selector select{padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:var(--bg);color:var(--text);outline:none;cursor:pointer;max-width:200px}
+    .backend-selector select:focus{border-color:var(--accent)}
+    .backend-tag{font-size:11px;padding:2px 8px;border-radius:6px;background:#8b5cf6;color:#fff;font-weight:600}
 
     /* ── Selection toolbar ── */
     .sel-toolbar{display:none;align-items:center;gap:12px;padding:8px 24px;background:var(--card);border-bottom:1px solid var(--border);font-size:13px;flex-shrink:0;animation:fadeIn .2s ease}
@@ -253,8 +259,15 @@ export function renderDashboard(isDemo: boolean = false): string {
     .storage-card .sc-badge{font-size:10px;padding:2px 8px;border-radius:6px;font-weight:600;background:var(--hover);color:var(--sub)}
     .storage-card .sc-badge.primary{background:#10b981;color:#fff}
     .storage-card .sc-badge.sync{background:#3b82f6;color:#fff}
+    .storage-card .sc-badge.builtin{background:#8b5cf6;color:#fff}
     .storage-card .sc-info{font-size:12px;color:var(--sub);margin-top:8px;display:flex;gap:16px;flex-wrap:wrap}
-    .storage-card .sc-actions{display:flex;gap:4px;margin-top:10px}
+    .storage-card .sc-actions{display:flex;gap:4px;margin-top:10px;align-items:center;flex-wrap:wrap}
+    .sc-status{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:4px 10px;border-radius:6px;background:var(--bg);border:1px solid var(--border)}
+    .sc-status .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+    .sc-status .dot.online{background:#22c55e;box-shadow:0 0 6px rgba(34,197,94,0.4)}
+    .sc-status .dot.offline{background:#ef4444;box-shadow:0 0 6px rgba(239,68,68,0.4)}
+    .sc-status .dot.checking{background:#f59e0b;animation:pulse 1s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
     .form-group{margin-bottom:14px}
     .form-group label{display:block;font-size:12px;font-weight:600;color:var(--sub);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.3px}
     .form-group input,.form-group select{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:13px;background:var(--bg);color:var(--text);outline:none;transition:all .2s}
@@ -298,6 +311,10 @@ export function renderDashboard(isDemo: boolean = false): string {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
         存储配置
       </a>
+      <a class="nav" data-nav="account" onclick="go('account')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        账号设置
+      </a>
       <div class="side-bottom">
         <div class="pill" onclick="localStorage.removeItem('iodrive_token');location.href='/login'">
           <div class="dot">A</div>
@@ -325,6 +342,13 @@ export function renderDashboard(isDemo: boolean = false): string {
       <!-- Files page -->
       <div id="page-files">
         <div class="breadcrumbs" id="breadcrumbs"></div>
+        <div class="backend-selector">
+          <label>存储：</label>
+          <select id="backend-select" onchange="switchBackend(this.value)">
+            <option value="">R2 (默认)</option>
+          </select>
+          <span id="backend-active-tag" class="backend-tag" style="display:none">R2</span>
+        </div>
         <div class="sel-toolbar" id="sel-toolbar">
           <span class="sel-count" id="sel-count">已选择 0 项</span>
           <div class="sel-actions">
@@ -422,7 +446,7 @@ export function renderDashboard(isDemo: boolean = false): string {
       </div>
 
       <!-- Storage Add/Edit Modal -->
-      <div id="storage-modal" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.4);backdrop-filter:blur(2px);align-items:center;justify-content:center">
+      <div id="storage-modal" onclick="if(event.target===this)closeStorageModal()" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.4);backdrop-filter:blur(2px);align-items:center;justify-content:center">
         <div style="background:var(--card);border-radius:16px;box-shadow:var(--modal-shadow);width:520px;max-width:calc(100vw - 32px);max-height:90vh;overflow-y:auto">
           <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
             <div style="font-size:15px;font-weight:700" id="storage-modal-title">添加存储后端</div>
@@ -468,12 +492,13 @@ export function renderDashboard(isDemo: boolean = false): string {
               <label>Secret Key</label>
               <input type="password" id="sm-secretkey" placeholder="Secret Access Key">
             </div>
+            <div id="sm-cred-hint" style="font-size:12px;margin-top:-8px;margin-bottom:12px;display:none"></div>
             <div style="display:flex;gap:16px;margin:12px 0">
               <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
-                <input type="checkbox" id="sm-primary"> 设为主存储
+                <input type="checkbox" id="sm-primary" onchange="if(this.checked&&!confirm('设为主存储后，其他后端的主存储标记将被取消。是否继续？'))this.checked=false"> 设为主存储
               </label>
-              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
-                <input type="checkbox" id="sm-sync" checked> 上传时同步
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer" title="开启后，文件上传时会自动同步写入此存储后端">
+                <input type="checkbox" id="sm-sync" checked> 上传时同步 <span style="color:var(--sub);font-size:11px;cursor:help">ⓘ</span>
               </label>
             </div>
             <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
@@ -481,6 +506,39 @@ export function renderDashboard(isDemo: boolean = false): string {
               <button class="btn btn-p" onclick="saveStorageBackend()" id="sm-save-btn">保存</button>
             </div>
             <div id="sm-test-result" style="margin-top:10px;font-size:12px;display:none"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Account Settings page -->
+      <div id="page-account" style="display:none">
+        <div style="padding:20px 24px;overflow-y:auto;height:100%;max-width:560px">
+          <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px">账号设置</div>
+          <div style="font-size:12px;color:var(--sub);margin-bottom:24px">修改管理员用户名和密码，配置保存在 R2 存储中</div>
+
+          <div class="form-group">
+            <label>当前用户名</label>
+            <input type="text" id="ac-username" placeholder="admin" style="max-width:320px">
+          </div>
+          <div class="form-group">
+            <label>当前密码 <span style="color:var(--sub);font-size:11px">(必填)</span></label>
+            <input type="password" id="ac-current-pass" placeholder="输入当前密码">
+          </div>
+          <div style="height:1px;background:var(--border);margin:20px 0"></div>
+          <div class="form-group">
+            <label>新密码 <span style="color:var(--sub);font-size:11px">(至少 6 位)</span></label>
+            <input type="password" id="ac-new-pass" placeholder="输入新密码">
+          </div>
+          <div class="form-group">
+            <label>确认新密码</label>
+            <input type="password" id="ac-confirm-pass" placeholder="再次输入新密码">
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+            <button class="btn btn-p" onclick="saveAdminConfig()" id="ac-save-btn">保存修改</button>
+            <span id="ac-result" style="font-size:12px"></span>
+          </div>
+          <div id="ac-hint" style="margin-top:20px;padding:14px 16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;font-size:12px;color:var(--sub);line-height:1.6">
+            💡 修改用户名和密码后，下次登录需要使用新凭证。当前会话不受影响。
           </div>
         </div>
       </div>
@@ -500,12 +558,23 @@ export function renderDashboard(isDemo: boolean = false): string {
     const IS_DEMO=${isDemo ? 'true' : 'false'};
     let files=[],downloads=[],uploads=[],shares=[],folders=[],currentPath='uploads/',ancestors=[];
     let selectedKeys=new Set();
+    let currentBackend='';
 
     // Theme
     function initTheme(){var t=localStorage.getItem('iodrive_theme')||'light';if(t==='dark')document.documentElement.setAttribute('data-theme','dark');updThemeUI()}
     function toggleTheme(){var d=document.documentElement.getAttribute('data-theme')==='dark';if(d){document.documentElement.removeAttribute('data-theme');localStorage.setItem('iodrive_theme','light')}else{document.documentElement.setAttribute('data-theme','dark');localStorage.setItem('iodrive_theme','dark')}updThemeUI()}
     function updThemeUI(){var d=document.documentElement.getAttribute('data-theme')==='dark';document.getElementById('theme-btn').textContent=d?'☀️':'🌙'}
     initTheme();
+
+    // ESC 键关闭弹窗
+    document.addEventListener('keydown',function(e){
+      if(e.key==='Escape'){
+        var modal=document.getElementById('storage-modal');
+        if(modal&&modal.style.display!=='none'){closeStorageModal();return}
+        var overlays=document.querySelectorAll('.overlay');
+        if(overlays.length>0){overlays[overlays.length-1].remove()}
+      }
+    });
 
     function fmt(b){if(!b)return'0 B';var u=['B','KB','MB','GB','TB'],i=0,s=b;while(s>=1024&&i<u.length-1){s/=1024;i++}return s.toFixed(i?1:0)+' '+u[i]}
     function fmtS(b){return fmt(b)+'/s'}
@@ -529,12 +598,14 @@ export function renderDashboard(isDemo: boolean = false): string {
       document.getElementById('page-shares').style.display=page==='shares'?'':'none';
       document.getElementById('page-uploadkeys').style.display=page==='uploadkeys'?'':'none';
       document.getElementById('page-storage').style.display=page==='storage'?'':'none';
+      document.getElementById('page-account').style.display=page==='account'?'':'none';
       if(page==='files')loadFiles();
       if(page==='uploads')loadUploads();
       if(page==='downloads')loadDownloads();
       if(page==='shares')loadShares();
       if(page==='uploadkeys')loadUploadKeys();
       if(page==='storage')loadStorageBackends();
+      if(page==='account')loadAdminInfo();
       closeSide();
     }
 
@@ -544,16 +615,45 @@ export function renderDashboard(isDemo: boolean = false): string {
 
     // ── Files ──
     async function loadFiles(){
-      var r=await api('/api/files?prefix='+encodeURIComponent(currentPath));
+      var url='/api/files?prefix='+encodeURIComponent(currentPath);
+      if(currentBackend)url+='&backend='+encodeURIComponent(currentBackend);
+      var r=await api(url);
       if(!r)return;var d=await r.json();
       files=d.files||[];folders=d.folders||[];ancestors=d.ancestors||[];
       clearSelection();render();
     }
 
+    // 加载可用的存储后端列表（用于文件浏览切换）
+    async function loadBackendOptions(){
+      var r=await api('/api/storage/backends');
+      if(!r)return;var d=await r.json();
+      var sel=document.getElementById('backend-select');
+      var opts='<option value="">R2 (默认)</option>';
+      if(d.backends){
+        d.backends.forEach(function(b){
+          opts+='<option value="'+esc(b.name)+'">'+esc(b.name)+' ('+esc(PROVIDER_PRESETS[b.provider]?PROVIDER_PRESETS[b.provider].name:b.provider)+')</option>';
+        });
+      }
+      sel.innerHTML=opts;
+      sel.value=currentBackend;
+    }
+    loadProviderPresets().then(function(){loadBackendOptions()});
+
+    function switchBackend(name){
+      currentBackend=name;
+      // 非 R2 后端的根路径为 / 而非 uploads/
+      currentPath=name?'':'uploads/';
+      var tag=document.getElementById('backend-active-tag');
+      if(name){tag.style.display='';tag.textContent=name}else{tag.style.display='none'}
+      loadFiles();
+    }
+
     // Breadcrumbs
     function renderBreadcrumbs(){
       var bc=document.getElementById('breadcrumbs');
-      var h='<span class="bc-item" onclick="navigateTo(&apos;uploads/&apos;)">\u{1F4C2} 根目录</span>';
+      var rootPath=currentBackend?'':'uploads/';
+      var rootLabel=currentBackend?'📦 '+esc(currentBackend)+' 根目录':'\u{1F4C2} 根目录';
+      var h='<span class="bc-item" onclick="navigateTo(&apos;'+rootPath+'&apos;)">'+rootLabel+'</span>';
       for(var i=0;i<ancestors.length;i++){
         var a=ancestors[i];
         h+='<span class="bc-sep">/</span>';
@@ -866,7 +966,8 @@ export function renderDashboard(isDemo: boolean = false): string {
     async function del(key,name){
       if(IS_DEMO)return;
       if(!confirm('删除「'+name+'」？'))return;
-      var r=await api('/api/files/'+key.split('/').map(encodeURIComponent).join('/'),{method:'DELETE'});
+      var delUrl='/api/files/'+key.split('/').map(encodeURIComponent).join('/')+(currentBackend?'?backend='+encodeURIComponent(currentBackend):'');
+      var r=await api(delUrl,{method:'DELETE'});
       if(r&&r.ok)loadFiles();
     }
 
@@ -880,7 +981,8 @@ export function renderDashboard(isDemo: boolean = false): string {
       m.querySelector('#cf-btn').onclick=async function(){
         var name=document.getElementById('new-folder-name').value.trim();
         if(!name)return;
-        var r=await api('/api/files/folder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:currentPath+name})});
+        var folderUrl='/api/files/folder'+(currentBackend?'?backend='+encodeURIComponent(currentBackend):'');
+        var r=await api(folderUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:currentPath+name})});
         if(r&&r.ok){o.remove();loadFiles()}else if(r){r.json().then(function(d){alert(d.error||'创建失败')})}
       };
       m.querySelector('input').onkeydown=function(e){if(e.key==='Enter')m.querySelector('#cf-btn').click()};
@@ -893,7 +995,8 @@ export function renderDashboard(isDemo: boolean = false): string {
       if(!selectedKeys.size)return;
       if(!confirm('删除选中的 '+selectedKeys.size+' 个项目？'))return;
       var keys=Array.from(selectedKeys);
-      var r=await api('/api/files/batch-delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keys})});
+      var delUrl='/api/files/batch-delete'+(currentBackend?'?backend='+encodeURIComponent(currentBackend):'');
+      var r=await api(delUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keys})});
       if(r&&r.ok){clearSelection();loadFiles()}
     }
 
@@ -919,24 +1022,28 @@ export function renderDashboard(isDemo: boolean = false): string {
 
     async function batchMove(){
       if(!selectedKeys.size)return;
-      var r=await api('/api/files/folders');
+      var bkParam=currentBackend?'?backend='+encodeURIComponent(currentBackend):'';
+      var r=await api('/api/files/folders'+bkParam);
       if(!r||!r.ok)return;
       var d=await r.json();
       var allFolders=d.folders||[];
+      var rootPath=currentBackend?'':'uploads/';
       var o=document.createElement('div');o.className='overlay';
       var m=document.createElement('div');m.className='modal';
       var html='<h2>移动到文件夹</h2><label>目标位置</label><select id="move-target">';
-      html+='<option value="uploads/">根目录</option>';
+      html+='<option value="'+esc(rootPath)+'">根目录</option>';
       for(var i=0;i<allFolders.length;i++){var f=allFolders[i];
         if(f===currentPath)continue;
-        html+='<option value="'+esc(f)+'">'+esc(f.replace('uploads/',''))+'</option>';
+        var label=currentBackend?f:f.replace('uploads/','');
+        html+='<option value="'+esc(f)+'">'+esc(label)+'</option>';
       }
       html+='</select><div class="btn-row"><button class="btn btn-s" onclick="this.closest(&apos;.overlay&apos;).remove()">取消</button><button class="btn btn-p" id="bm-btn">移动</button></div>';
       m.innerHTML=html;o.appendChild(m);document.body.appendChild(o);
       m.querySelector('#bm-btn').onclick=async function(){
         var target=document.getElementById('move-target').value;
         var keys=Array.from(selectedKeys);
-        var r2=await api('/api/files/move',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keys:keys,targetPath:target})});
+        var moveUrl='/api/files/move'+(currentBackend?'?backend='+encodeURIComponent(currentBackend):'');
+        var r2=await api(moveUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keys:keys,targetPath:target})});
         if(r2&&r2.ok){o.remove();clearSelection();loadFiles()}
       };
       o.addEventListener('click',function(e){if(e.target===o)o.remove()});
@@ -1031,18 +1138,36 @@ export function renderDashboard(isDemo: boolean = false): string {
       var r=await api('/api/storage/providers');
       if(r){try{PROVIDER_PRESETS=await r.json()}catch{}}
     }
-    loadProviderPresets();
+    // loadProviderPresets 在文件浏览初始化中调用（line ~600）
 
     async function loadStorageBackends(){
       var r=await api('/api/storage/backends');
       if(!r)return;var d=await r.json();
       var list=document.getElementById('storage-list');
       var empty=document.getElementById('storage-empty');
+      var html='';
+
+      // R2 内置存储卡片（始终显示在最上方）
+      if(d.r2Available){
+        html+='<div class="storage-card" id="r2-card">'+
+          '<div class="sc-head">'+
+            '<div class="sc-name"><span>R2</span><span class="sc-badge builtin">内置存储</span></div>'+
+            '<div class="sc-actions">'+
+              '<button class="btn btn-s" onclick="checkStorageStatus(\\'_r2_\\')">检测状态</button>'+
+            '</div>'+
+          '</div>'+
+          '<div class="sc-info"><span>☁️ Cloudflare R2 (绑定)</span></div>'+
+          '<div id="status-_r2_" style="margin-top:8px"></div>'+
+        '</div>';
+      }
+
       if(!d.backends||d.backends.length===0){
-        list.innerHTML='';empty.style.display='';return;
+        if(!d.r2Available){list.innerHTML='';empty.style.display='';return}
+        empty.style.display='none';
+        list.innerHTML=html;return;
       }
       empty.style.display='none';
-      var html='';
+
       d.backends.forEach(function(b){
         var badges='';
         if(b.primary)badges+='<span class="sc-badge primary">主存储</span>';
@@ -1052,6 +1177,7 @@ export function renderDashboard(isDemo: boolean = false): string {
           '<div class="sc-head">'+
             '<div class="sc-name"><span>'+esc(b.name)+'</span>'+badges+'</div>'+
             '<div class="sc-actions">'+
+              '<button class="btn btn-s" onclick="checkStorageStatus(\\''+esc(b.name)+'\\')">检测状态</button>'+
               '<button class="btn btn-s" onclick="editStorageBackend(\\''+esc(b.name)+'\\')">编辑</button>'+
               '<button class="btn btn-s" style="color:#ef4444" onclick="deleteStorageBackend(\\''+esc(b.name)+'\\')">删除</button>'+
             '</div>'+
@@ -1063,9 +1189,25 @@ export function renderDashboard(isDemo: boolean = false): string {
             '<span>📍 '+esc(b.region)+'</span>'+
             (b.hasCredentials?'<span>🔑 已配置</span>':'<span style="color:#ef4444">🔑 未配置</span>')+
           '</div>'+
+          '<div id="status-'+esc(b.name)+'" style="margin-top:8px"></div>'+
         '</div>';
       });
       list.innerHTML=html;
+    }
+
+    async function checkStorageStatus(name){
+      var el=document.getElementById('status-'+name);
+      if(!el)return;
+      el.innerHTML='<span class="sc-status"><span class="dot checking"></span> 检测中...</span>';
+      var r=await api('/api/storage/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})});
+      if(!r){el.innerHTML='<span class="sc-status"><span class="dot offline"></span> 请求失败</span>';return}
+      var d=await r.json();
+      if(d.ok){
+        var extra=d.fileCount!==undefined?' · '+d.fileCount+' 个对象':'';
+        el.innerHTML='<span class="sc-status"><span class="dot online"></span> 在线 ('+d.responseTime+'ms'+extra+')</span>';
+      }else{
+        el.innerHTML='<span class="sc-status"><span class="dot offline"></span> 离线: '+(d.error||'未知错误')+'</span>';
+      }
     }
 
     function showAddStorage(){
@@ -1080,7 +1222,10 @@ export function renderDashboard(isDemo: boolean = false): string {
       document.getElementById('sm-primary').checked=false;
       document.getElementById('sm-sync').checked=true;
       document.getElementById('sm-test-result').style.display='none';
-      document.getElementById('sm-save-btn').textContent='保存';
+      document.getElementById('sm-cred-hint').style.display='none';
+      document.getElementById('sm-save-btn').textContent='保存';document.getElementById('sm-save-btn').disabled=false;
+      // 初始化 provider 占位符
+      onProviderChange();
       document.getElementById('storage-modal').style.display='flex';
     }
 
@@ -1092,8 +1237,19 @@ export function renderDashboard(isDemo: boolean = false): string {
       var p=document.getElementById('sm-provider').value;
       var preset=PROVIDER_PRESETS[p];
       if(!preset)return;
-      if(preset.endpoint)document.getElementById('sm-endpoint').value=preset.endpoint;
-      if(preset.regions&&preset.regions.length>0)document.getElementById('sm-region').value=preset.regions[0];
+      var epField=document.getElementById('sm-endpoint');
+      var rgField=document.getElementById('sm-region');
+      if(!_editingName){
+        // 新增模式：自动填充
+        if(preset.endpoint)epField.value=preset.endpoint;
+        if(preset.regions&&preset.regions.length>0)rgField.value=preset.regions[0];
+      }else{
+        // 编辑模式：仅当字段为空时填充
+        if(!epField.value.trim()&&preset.endpoint)epField.value=preset.endpoint;
+        if(!rgField.value.trim()&&preset.regions&&preset.regions.length>0)rgField.value=preset.regions[0];
+      }
+      // 更新占位符为 provider 预设的提示
+      if(preset.endpointPlaceholder)epField.placeholder=preset.endpointPlaceholder;
     }
 
     async function editStorageBackend(name){
@@ -1113,11 +1269,21 @@ export function renderDashboard(isDemo: boolean = false): string {
       document.getElementById('sm-primary').checked=!!b.primary;
       document.getElementById('sm-sync').checked=b.sync!==false;
       document.getElementById('sm-test-result').style.display='none';
-      document.getElementById('sm-save-btn').textContent='更新';
+      document.getElementById('sm-save-btn').textContent='更新';document.getElementById('sm-save-btn').disabled=false;
+      // 显示凭证状态提示
+      var credHint=document.getElementById('sm-cred-hint');
+      credHint.style.display='block';
+      if(b.hasCredentials){credHint.style.color='#10b981';credHint.textContent='🔑 已配置密钥（留空则保持不变）'}
+      else{credHint.style.color='#ef4444';credHint.textContent='⚠️ 未配置密钥，请填写'}
+      // 更新 provider 占位符
+      var preset=PROVIDER_PRESETS[b.provider];
+      if(preset&&preset.endpointPlaceholder)document.getElementById('sm-endpoint').placeholder=preset.endpointPlaceholder;
       document.getElementById('storage-modal').style.display='flex';
     }
 
     async function saveStorageBackend(){
+      var btn=document.getElementById('sm-save-btn');
+      if(btn.disabled)return;
       var name=document.getElementById('sm-name').value.trim();
       var provider=document.getElementById('sm-provider').value;
       var endpoint=document.getElementById('sm-endpoint').value.trim();
@@ -1131,6 +1297,9 @@ export function renderDashboard(isDemo: boolean = false): string {
       if(!name||!endpoint||!bucket||!region){alert('请填写所有必填字段');return}
       if(!_editingName&&(!accessKey||!secretKey)){alert('请填写 Access Key 和 Secret Key');return}
 
+      var originalText=btn.textContent;
+      btn.textContent='保存中...';btn.disabled=true;
+
       var body={name:name,provider:provider,endpoint:endpoint,bucket:bucket,region:region,primary:primary,sync:sync};
       if(accessKey)body.accessKey=accessKey;
       if(secretKey)body.secretKey=secretKey;
@@ -1141,6 +1310,7 @@ export function renderDashboard(isDemo: boolean = false): string {
       }else{
         r=await api('/api/storage/backends',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
       }
+      btn.textContent=originalText;btn.disabled=false;
       if(r&&r.ok){closeStorageModal();loadStorageBackends()}
       else if(r){var e=await r.json().catch(function(){return{error:'操作失败'}});alert(e.error||'操作失败')}
       else{alert('网络异常，请重试')}
@@ -1160,16 +1330,52 @@ export function renderDashboard(isDemo: boolean = false): string {
       var secretKey=document.getElementById('sm-secretkey').value.trim();
       if(!endpoint||!bucket||!region||!accessKey||!secretKey){alert('请填写所有字段后再测试');return}
 
+      var provider=document.getElementById('sm-provider').value;
+      var pathStyle=PROVIDER_PRESETS[provider]?PROVIDER_PRESETS[provider].pathStyle:false;
+
       var btn=document.getElementById('sm-test-btn');
       var result=document.getElementById('sm-test-result');
       btn.textContent='测试中...';btn.disabled=true;result.style.display='none';
 
-      var r=await api('/api/storage/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({endpoint:endpoint,bucket:bucket,region:region,accessKey:accessKey,secretKey:secretKey})});
+      var r=await api('/api/storage/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({endpoint:endpoint,bucket:bucket,region:region,accessKey:accessKey,secretKey:secretKey,pathStyle:pathStyle,provider:provider})});
       btn.textContent='测试连接';btn.disabled=false;
       if(r){var d=await r.json();result.style.display='block';
         if(d.ok){result.style.color='#10b981';result.textContent='✅ '+d.message}
         else{result.style.color='#ef4444';result.textContent='❌ '+(d.error||'连接失败')}
       }
+    }
+
+    // ── Account settings ──
+    async function loadAdminInfo(){
+      var r=await api('/api/auth/admin-config');
+      if(!r)return;var d=await r.json();
+      document.getElementById('ac-username').value=d.username||'admin';
+      document.getElementById('ac-current-pass').value='';
+      document.getElementById('ac-new-pass').value='';
+      document.getElementById('ac-confirm-pass').value='';
+      document.getElementById('ac-result').textContent='';
+    }
+
+    async function saveAdminConfig(){
+      var btn=document.getElementById('ac-save-btn');
+      if(btn.disabled)return;
+      var username=document.getElementById('ac-username').value.trim();
+      var currentPassword=document.getElementById('ac-current-pass').value;
+      var newPassword=document.getElementById('ac-new-pass').value;
+      var confirmPassword=document.getElementById('ac-confirm-pass').value;
+      var resultEl=document.getElementById('ac-result');
+
+      if(!currentPassword){resultEl.style.color='#ef4444';resultEl.textContent='请输入当前密码';return}
+      if(!newPassword){resultEl.style.color='#ef4444';resultEl.textContent='请输入新密码';return}
+      if(newPassword.length<6){resultEl.style.color='#ef4444';resultEl.textContent='新密码长度不能少于 6 位';return}
+      if(newPassword!==confirmPassword){resultEl.style.color='#ef4444';resultEl.textContent='两次输入的密码不一致';return}
+
+      var originalText=btn.textContent;btn.textContent='保存中...';btn.disabled=true;
+      var r=await api('/api/auth/admin-config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username,currentPassword:currentPassword,newPassword:newPassword})});
+      btn.textContent=originalText;btn.disabled=false;
+      if(r&&r.ok){resultEl.style.color='#10b981';resultEl.textContent='✅ 保存成功，下次登录使用新凭证';document.getElementById('ac-current-pass').value='';document.getElementById('ac-new-pass').value='';document.getElementById('ac-confirm-pass').value=''}
+      else if(r){var e=await r.json().catch(function(){return{error:'操作失败'}});resultEl.style.color='#ef4444';resultEl.textContent='❌ '+(e.error||'操作失败')}
+      else{resultEl.style.color='#ef4444';resultEl.textContent='❌ 网络异常'}
     }
 
     loadFiles();

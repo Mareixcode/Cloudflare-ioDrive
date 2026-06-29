@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Env, FileMeta, FolderMeta } from './types';
 import { jwtAuth } from './auth';
 import { uniqueKey } from './upload-utils';
-import { createStorageEngine } from './storage-engine';
+import { createStorageEngine, createStorageEngineForBackend } from './storage-engine';
 import type { StorageEngine } from './storage-engine';
 
 export const filesRoutes = new Hono<{ Bindings: Env }>();
@@ -10,10 +10,16 @@ export const filesRoutes = new Hono<{ Bindings: Env }>();
 // All file routes require JWT auth
 filesRoutes.use('*', jwtAuth);
 
+// 辅助函数：根据请求参数创建对应的存储引擎
+async function getEngine(env: import('./types').Env, backend?: string): Promise<StorageEngine> {
+  return backend ? createStorageEngineForBackend(env, backend) : createStorageEngine(env);
+}
+
 // List files (folder-aware with delimiter)
 filesRoutes.get('/', async (c) => {
   try {
-    const engine = await createStorageEngine(c.env);
+    const backend = c.req.query('backend') || '';
+    const engine = await getEngine(c.env, backend);
     const prefix = c.req.query('prefix') || 'uploads/';
     const listed = await engine.list(prefix, { delimiter: '/' });
 
@@ -55,7 +61,8 @@ filesRoutes.get('/', async (c) => {
 
 // List all folders recursively (for move picker)
 filesRoutes.get('/folders', async (c) => {
-  const engine = await createStorageEngine(c.env);
+  const backend = c.req.query('backend') || '';
+  const engine = await getEngine(c.env, backend);
   const folders: string[] = [];
   async function collect(prefix: string, depth: number) {
     if (depth > 5) return;
@@ -71,7 +78,8 @@ filesRoutes.get('/folders', async (c) => {
 
 // Create folder
 filesRoutes.post('/folder', async (c) => {
-  const engine = await createStorageEngine(c.env);
+  const backend = c.req.query('backend') || '';
+  const engine = await getEngine(c.env, backend);
   const { path } = await c.req.json<{ path: string }>();
   if (!path || !path.startsWith('uploads/')) return c.json({ error: 'invalid path' }, 400);
   const folderKey = path.endsWith('/') ? path : path + '/';
@@ -91,7 +99,8 @@ function assertValidKeys(keys: string[]): void {
 
 // Delete file or folder
 filesRoutes.delete('/:key{.+}', async (c) => {
-  const engine = await createStorageEngine(c.env);
+  const backend = c.req.query('backend') || '';
+  const engine = await getEngine(c.env, backend);
   const key = c.req.param('key');
   assertValidKey(key);
   if (key.endsWith('/')) {
@@ -107,7 +116,8 @@ filesRoutes.delete('/:key{.+}', async (c) => {
 
 // Batch delete (supports folders)
 filesRoutes.post('/batch-delete', async (c) => {
-  const engine = await createStorageEngine(c.env);
+  const backend = c.req.query('backend') || '';
+  const engine = await getEngine(c.env, backend);
   const { keys } = await c.req.json<{ keys: string[] }>();
   if (!keys?.length) return c.json({ error: 'no keys' }, 400);
   assertValidKeys(keys);
@@ -130,7 +140,8 @@ filesRoutes.post('/batch-delete', async (c) => {
 
 // Move files to folder
 filesRoutes.post('/move', async (c) => {
-  const engine = await createStorageEngine(c.env);
+  const backend = c.req.query('backend') || '';
+  const engine = await getEngine(c.env, backend);
   const { keys, targetPath } = await c.req.json<{ keys: string[]; targetPath: string }>();
   if (!keys?.length || !targetPath) return c.json({ error: 'no keys or target' }, 400);
   assertValidKeys(keys);
@@ -150,7 +161,8 @@ filesRoutes.post('/move', async (c) => {
 
 // Get file info
 filesRoutes.get('/:key{.+}', async (c) => {
-  const engine = await createStorageEngine(c.env);
+  const backend = c.req.query('backend') || '';
+  const engine = await getEngine(c.env, backend);
   const key = c.req.param('key');
   const obj = await engine.head(key);
   if (!obj) return c.json({ error: '文件不存在' }, 404);
