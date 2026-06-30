@@ -272,6 +272,30 @@ export function renderDashboard(isDemo: boolean = false): string {
     .form-group label{display:block;font-size:12px;font-weight:600;color:var(--sub);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.3px}
     .form-group input,.form-group select{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:13px;background:var(--bg);color:var(--text);outline:none;transition:all .2s}
     .form-group input:focus,.form-group select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(100,100,100,0.08)}
+
+    /* ── Account settings ── */
+    .ac-card{background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:20px 22px;margin-bottom:16px;transition:all .35s;animation:cardIn .45s cubic-bezier(.34,1.56,.64,1) both}
+    .ac-card:nth-child(2){animation-delay:.08s}
+    .ac-card:nth-child(3){animation-delay:.14s}
+    .ac-card:hover{border-color:var(--accent);box-shadow:var(--shadow)}
+    .ac-card-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+    .ac-card-title .ac-icon{width:32px;height:32px;border-radius:10px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:15px}
+    @keyframes cardIn{0%{opacity:0;transform:translateY(16px)}100%{opacity:1;transform:translateY(0)}}
+    .ac-result{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;padding:8px 14px;border-radius:8px;opacity:0;transform:translateY(-4px);transition:all .3s cubic-bezier(.34,1.56,.64,1)}
+    .ac-result.show{opacity:1;transform:translateY(0)}
+    .ac-result.ok{color:#10b981;background:rgba(16,185,129,0.08)}
+    .ac-result.err{color:#ef4444;background:rgba(239,68,68,0.08)}
+    @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
+
+    /* ── Storage modal advanced options ── */
+    #sm-adv-options{overflow:hidden;transition:max-height .35s cubic-bezier(.34,1.56,.64,1),opacity .25s ease;max-height:0;opacity:0}
+    #sm-adv-options.open{max-height:220px;opacity:1}
+    .sm-test-result{font-size:12px;padding:10px 14px;border-radius:8px;margin-top:10px;opacity:0;transform:translateY(-4px);transition:all .3s cubic-bezier(.34,1.56,.64,1)}
+    .sm-test-result.show{opacity:1;transform:translateY(0)}
+    .sm-test-result.ok{color:#10b981;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.15)}
+    .sm-test-result.err{color:#ef4444;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.15)}
+    .sm-test-result.testing{color:#f59e0b;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.15)}
+    @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
   </style>
 </head>
 <body${isDemo ? ' class="demo"' : ''}>
@@ -491,7 +515,7 @@ export function renderDashboard(isDemo: boolean = false): string {
               <button type="button" onclick="toggleAdvOptions()" style="background:none;border:none;font-size:12px;color:var(--sub);cursor:pointer;padding:4px 0;display:flex;align-items:center;gap:4px">
                 <span id="sm-adv-arrow">▶</span> 高级选项
               </button>
-              <div id="sm-adv-options" style="display:none">
+              <div id="sm-adv-options">
                 <div class="form-group" style="margin-top:8px">
                   <label>Endpoint <span style="color:var(--sub);font-size:11px">(自动填充)</span></label>
                   <input type="text" id="sm-endpoint" placeholder="s3.amazonaws.com">
@@ -515,7 +539,7 @@ export function renderDashboard(isDemo: boolean = false): string {
               <button class="btn btn-s" onclick="testStorageConnection()" id="sm-test-btn">测试连接</button>
               <button class="btn btn-p" onclick="saveStorageBackend()" id="sm-save-btn">保存</button>
             </div>
-            <div id="sm-test-result" style="margin-top:10px;font-size:12px;display:none"></div>
+            <div id="sm-test-result" class="sm-test-result"></div>
           </div>
         </div>
       </div>
@@ -526,27 +550,38 @@ export function renderDashboard(isDemo: boolean = false): string {
           <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px">账号设置</div>
           <div style="font-size:12px;color:var(--sub);margin-bottom:24px">修改管理员用户名和密码，配置保存在 R2 存储中</div>
 
-          <div class="form-group">
-            <label>当前用户名</label>
-            <input type="text" id="ac-username" placeholder="admin" style="max-width:320px">
+          <!-- 当前凭证卡片 -->
+          <div class="ac-card">
+            <div class="ac-card-title"><span class="ac-icon">🔑</span>当前凭证</div>
+            <div class="form-group">
+              <label>用户名</label>
+              <input type="text" id="ac-username" placeholder="admin" autocomplete="username">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label>当前密码 <span style="color:var(--sub);font-size:11px">(必填)</span></label>
+              <input type="password" id="ac-current-pass" placeholder="输入当前密码" autocomplete="current-password">
+            </div>
           </div>
-          <div class="form-group">
-            <label>当前密码 <span style="color:var(--sub);font-size:11px">(必填)</span></label>
-            <input type="password" id="ac-current-pass" placeholder="输入当前密码">
+
+          <!-- 修改密码卡片 -->
+          <div class="ac-card">
+            <div class="ac-card-title"><span class="ac-icon">🔒</span>修改密码</div>
+            <div class="form-group">
+              <label>新密码 <span style="color:var(--sub);font-size:11px">(至少 6 位)</span></label>
+              <input type="password" id="ac-new-pass" placeholder="输入新密码" autocomplete="new-password">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label>确认新密码</label>
+              <input type="password" id="ac-confirm-pass" placeholder="再次输入新密码" autocomplete="new-password">
+            </div>
           </div>
-          <div style="height:1px;background:var(--border);margin:20px 0"></div>
-          <div class="form-group">
-            <label>新密码 <span style="color:var(--sub);font-size:11px">(至少 6 位)</span></label>
-            <input type="password" id="ac-new-pass" placeholder="输入新密码">
-          </div>
-          <div class="form-group">
-            <label>确认新密码</label>
-            <input type="password" id="ac-confirm-pass" placeholder="再次输入新密码">
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+
+          <!-- 操作栏 -->
+          <div style="display:flex;gap:12px;align-items:center;margin-top:4px">
             <button class="btn btn-p" onclick="saveAdminConfig()" id="ac-save-btn">保存修改</button>
-            <span id="ac-result" style="font-size:12px"></span>
+            <span class="ac-result" id="ac-result"></span>
           </div>
+
           <div id="ac-hint" style="margin-top:20px;padding:14px 16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;font-size:12px;color:var(--sub);line-height:1.6">
             💡 修改用户名和密码后，下次登录需要使用新凭证。当前会话不受影响。
           </div>
@@ -1231,11 +1266,11 @@ export function renderDashboard(isDemo: boolean = false): string {
       document.getElementById('sm-secretkey').value='';
       document.getElementById('sm-primary').checked=false;
       document.getElementById('sm-sync').checked=true;
-      document.getElementById('sm-test-result').style.display='none';
+      document.getElementById('sm-test-result').className='sm-test-result';
       document.getElementById('sm-cred-hint').style.display='none';
       document.getElementById('sm-save-btn').textContent='保存';document.getElementById('sm-save-btn').disabled=false;
       // 折叠高级选项
-      document.getElementById('sm-adv-options').style.display='none';
+      document.getElementById('sm-adv-options').classList.remove('open');
       document.getElementById('sm-adv-arrow').textContent='▶';
       // 初始化 provider 占位符和自动填充
       onProviderChange();
@@ -1249,12 +1284,12 @@ export function renderDashboard(isDemo: boolean = false): string {
     function toggleAdvOptions(){
       var opts=document.getElementById('sm-adv-options');
       var arrow=document.getElementById('sm-adv-arrow');
-      if(opts.style.display==='none'){
-        opts.style.display='block';
-        arrow.textContent='▼';
-      }else{
-        opts.style.display='none';
+      if(opts.classList.contains('open')){
+        opts.classList.remove('open');
         arrow.textContent='▶';
+      }else{
+        opts.classList.add('open');
+        arrow.textContent='▼';
       }
     }
 
@@ -1293,10 +1328,10 @@ export function renderDashboard(isDemo: boolean = false): string {
       document.getElementById('sm-secretkey').value='';
       document.getElementById('sm-primary').checked=!!b.primary;
       document.getElementById('sm-sync').checked=b.sync!==false;
-      document.getElementById('sm-test-result').style.display='none';
+      document.getElementById('sm-test-result').className='sm-test-result';
       document.getElementById('sm-save-btn').textContent='更新';document.getElementById('sm-save-btn').disabled=false;
       // 折叠高级选项
-      document.getElementById('sm-adv-options').style.display='none';
+      document.getElementById('sm-adv-options').classList.remove('open');
       document.getElementById('sm-adv-arrow').textContent='▶';
       // 显示凭证状态提示
       var credHint=document.getElementById('sm-cred-hint');
@@ -1344,9 +1379,10 @@ export function renderDashboard(isDemo: boolean = false): string {
         r=await api('/api/storage/backends',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
       }
       btn.textContent=originalText;btn.disabled=false;
+      var result=document.getElementById('sm-test-result');
       if(r&&r.ok){closeStorageModal();loadStorageBackends()}
-      else if(r){var e=await r.json().catch(function(){return{error:'操作失败'}});alert(e.error||'操作失败')}
-      else{alert('网络异常，请重试')}
+      else if(r){var e=await r.json().catch(function(){return{error:'操作失败'}});result.className='sm-test-result err show';result.textContent='❌ '+(e.error||'操作失败')}
+      else{result.className='sm-test-result err show';result.textContent='❌ 网络异常，请重试'}
     }
 
     async function deleteStorageBackend(name){
@@ -1368,14 +1404,16 @@ export function renderDashboard(isDemo: boolean = false): string {
 
       var btn=document.getElementById('sm-test-btn');
       var result=document.getElementById('sm-test-result');
-      btn.textContent='测试中...';btn.disabled=true;result.style.display='none';
+      btn.textContent='⏳ 测试中...';btn.disabled=true;
+      result.className='sm-test-result testing show';
+      result.textContent='⏳ 正在检测连接...';
 
       var r=await api('/api/storage/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({endpoint:endpoint,bucket:bucket,region:region,accessKey:accessKey,secretKey:secretKey,pathStyle:pathStyle,provider:provider})});
       btn.textContent='测试连接';btn.disabled=false;
-      if(r){var d=await r.json();result.style.display='block';
-        if(d.ok){result.style.color='#10b981';result.textContent='✅ '+d.message}
-        else{result.style.color='#ef4444';result.textContent='❌ '+(d.error||'连接失败')}
-      }
+      if(r){var d=await r.json();
+        if(d.ok){result.className='sm-test-result ok show';result.textContent='✅ '+d.message}
+        else{result.className='sm-test-result err show';result.textContent='❌ '+(d.error||'连接失败')}
+      }else{result.className='sm-test-result err show';result.textContent='❌ 网络异常'}
     }
 
     // ── Account settings ──
@@ -1386,7 +1424,7 @@ export function renderDashboard(isDemo: boolean = false): string {
       document.getElementById('ac-current-pass').value='';
       document.getElementById('ac-new-pass').value='';
       document.getElementById('ac-confirm-pass').value='';
-      document.getElementById('ac-result').textContent='';
+      document.getElementById('ac-result').className='ac-result';
     }
 
     async function saveAdminConfig(){
@@ -1398,17 +1436,25 @@ export function renderDashboard(isDemo: boolean = false): string {
       var confirmPassword=document.getElementById('ac-confirm-pass').value;
       var resultEl=document.getElementById('ac-result');
 
-      if(!currentPassword){resultEl.style.color='#ef4444';resultEl.textContent='请输入当前密码';return}
-      if(!newPassword){resultEl.style.color='#ef4444';resultEl.textContent='请输入新密码';return}
-      if(newPassword.length<6){resultEl.style.color='#ef4444';resultEl.textContent='新密码长度不能少于 6 位';return}
-      if(newPassword!==confirmPassword){resultEl.style.color='#ef4444';resultEl.textContent='两次输入的密码不一致';return}
+      function showResult(ok,msg){
+        resultEl.className='ac-result show '+(ok?'ok':'err');
+        resultEl.textContent=(ok?'✅ ':'❌ ')+msg;
+        resultEl.style.animation='none';
+        resultEl.offsetHeight;
+        resultEl.style.animation='shake .4s ease';
+      }
+
+      if(!currentPassword){showResult(false,'请输入当前密码');document.getElementById('ac-current-pass').focus();return}
+      if(!newPassword){showResult(false,'请输入新密码');document.getElementById('ac-new-pass').focus();return}
+      if(newPassword.length<6){showResult(false,'新密码长度不能少于 6 位');return}
+      if(newPassword!==confirmPassword){showResult(false,'两次输入的密码不一致');return}
 
       var originalText=btn.textContent;btn.textContent='保存中...';btn.disabled=true;
       var r=await api('/api/auth/admin-config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username,currentPassword:currentPassword,newPassword:newPassword})});
       btn.textContent=originalText;btn.disabled=false;
-      if(r&&r.ok){resultEl.style.color='#10b981';resultEl.textContent='✅ 保存成功，下次登录使用新凭证';document.getElementById('ac-current-pass').value='';document.getElementById('ac-new-pass').value='';document.getElementById('ac-confirm-pass').value=''}
-      else if(r){var e=await r.json().catch(function(){return{error:'操作失败'}});resultEl.style.color='#ef4444';resultEl.textContent='❌ '+(e.error||'操作失败')}
-      else{resultEl.style.color='#ef4444';resultEl.textContent='❌ 网络异常'}
+      if(r&&r.ok){showResult(true,'保存成功，下次登录使用新凭证');document.getElementById('ac-current-pass').value='';document.getElementById('ac-new-pass').value='';document.getElementById('ac-confirm-pass').value=''}
+      else if(r){var e=await r.json().catch(function(){return{error:'操作失败'}});showResult(false,e.error||'操作失败')}
+      else{showResult(false,'网络异常')}
     }
 
     loadFiles();
