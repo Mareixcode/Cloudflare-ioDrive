@@ -473,16 +473,8 @@ export function renderDashboard(isDemo: boolean = false): string {
               <input type="text" id="sm-name" placeholder="例: backup, b2-main">
             </div>
             <div class="form-group">
-              <label>Endpoint</label>
-              <input type="text" id="sm-endpoint" placeholder="s3.amazonaws.com">
-            </div>
-            <div class="form-group">
-              <label>存储桶</label>
+              <label>存储桶 <span style="color:var(--sub);font-size:11px">(Bucket)</span></label>
               <input type="text" id="sm-bucket" placeholder="my-bucket">
-            </div>
-            <div class="form-group">
-              <label>Region</label>
-              <input type="text" id="sm-region" placeholder="us-east-1">
             </div>
             <div class="form-group">
               <label>Access Key</label>
@@ -493,14 +485,32 @@ export function renderDashboard(isDemo: boolean = false): string {
               <input type="password" id="sm-secretkey" placeholder="Secret Access Key">
             </div>
             <div id="sm-cred-hint" style="font-size:12px;margin-top:-8px;margin-bottom:12px;display:none"></div>
-            <div style="display:flex;gap:16px;margin:12px 0">
-              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
-                <input type="checkbox" id="sm-primary" onchange="if(this.checked&&!confirm('设为主存储后，其他后端的主存储标记将被取消。是否继续？'))this.checked=false"> 设为主存储
-              </label>
-              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer" title="开启后，文件上传时会自动同步写入此存储后端">
-                <input type="checkbox" id="sm-sync" checked> 上传时同步 <span style="color:var(--sub);font-size:11px;cursor:help">ⓘ</span>
-              </label>
+
+            <!-- 高级选项折叠 -->
+            <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+              <button type="button" onclick="toggleAdvOptions()" style="background:none;border:none;font-size:12px;color:var(--sub);cursor:pointer;padding:4px 0;display:flex;align-items:center;gap:4px">
+                <span id="sm-adv-arrow">▶</span> 高级选项
+              </button>
+              <div id="sm-adv-options" style="display:none">
+                <div class="form-group" style="margin-top:8px">
+                  <label>Endpoint <span style="color:var(--sub);font-size:11px">(自动填充)</span></label>
+                  <input type="text" id="sm-endpoint" placeholder="s3.amazonaws.com">
+                </div>
+                <div class="form-group">
+                  <label>Region <span style="color:var(--sub);font-size:11px">(自动填充)</span></label>
+                  <input type="text" id="sm-region" placeholder="us-east-1">
+                </div>
+                <div style="display:flex;gap:16px;margin:12px 0">
+                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+                    <input type="checkbox" id="sm-primary" onchange="if(this.checked&&!confirm('设为主存储后，其他后端的主存储标记将被取消。是否继续？'))this.checked=false"> 设为主存储
+                  </label>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer" title="开启后，文件上传时会自动同步写入此存储后端">
+                    <input type="checkbox" id="sm-sync" checked> 上传时同步 <span style="color:var(--sub);font-size:11px;cursor:help">ⓘ</span>
+                  </label>
+                </div>
+              </div>
             </div>
+
             <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
               <button class="btn btn-s" onclick="testStorageConnection()" id="sm-test-btn">测试连接</button>
               <button class="btn btn-p" onclick="saveStorageBackend()" id="sm-save-btn">保存</button>
@@ -1224,13 +1234,28 @@ export function renderDashboard(isDemo: boolean = false): string {
       document.getElementById('sm-test-result').style.display='none';
       document.getElementById('sm-cred-hint').style.display='none';
       document.getElementById('sm-save-btn').textContent='保存';document.getElementById('sm-save-btn').disabled=false;
-      // 初始化 provider 占位符
+      // 折叠高级选项
+      document.getElementById('sm-adv-options').style.display='none';
+      document.getElementById('sm-adv-arrow').textContent='▶';
+      // 初始化 provider 占位符和自动填充
       onProviderChange();
       document.getElementById('storage-modal').style.display='flex';
     }
 
     function closeStorageModal(){
       document.getElementById('storage-modal').style.display='none';
+    }
+
+    function toggleAdvOptions(){
+      var opts=document.getElementById('sm-adv-options');
+      var arrow=document.getElementById('sm-adv-arrow');
+      if(opts.style.display==='none'){
+        opts.style.display='block';
+        arrow.textContent='▼';
+      }else{
+        opts.style.display='none';
+        arrow.textContent='▶';
+      }
     }
 
     function onProviderChange(){
@@ -1270,6 +1295,9 @@ export function renderDashboard(isDemo: boolean = false): string {
       document.getElementById('sm-sync').checked=b.sync!==false;
       document.getElementById('sm-test-result').style.display='none';
       document.getElementById('sm-save-btn').textContent='更新';document.getElementById('sm-save-btn').disabled=false;
+      // 折叠高级选项
+      document.getElementById('sm-adv-options').style.display='none';
+      document.getElementById('sm-adv-arrow').textContent='▶';
       // 显示凭证状态提示
       var credHint=document.getElementById('sm-cred-hint');
       credHint.style.display='block';
@@ -1293,6 +1321,11 @@ export function renderDashboard(isDemo: boolean = false): string {
       var secretKey=document.getElementById('sm-secretkey').value.trim();
       var primary=document.getElementById('sm-primary').checked;
       var sync=document.getElementById('sm-sync').checked;
+
+      // 自动从 provider 预设补全 endpoint 和 region
+      var preset=PROVIDER_PRESETS[provider];
+      if(!endpoint&&preset&&preset.endpoint)endpoint=preset.endpoint;
+      if(!region&&preset&&preset.regions&&preset.regions.length>0)region=preset.regions[0];
 
       if(!name||!endpoint||!bucket||!region){alert('请填写所有必填字段');return}
       if(!_editingName&&(!accessKey||!secretKey)){alert('请填写 Access Key 和 Secret Key');return}
