@@ -510,6 +510,10 @@ export function renderDashboard(isDemo: boolean = false): string {
               <label>存储桶 <span style="color:var(--sub);font-size:11px">(Bucket)</span></label>
               <input type="text" id="sm-bucket" placeholder="my-bucket">
             </div>
+            <div class="form-group" id="sm-account-id-group" style="display:none">
+              <label>Account ID <span style="color:var(--sub);font-size:11px">(Cloudflare 账号 ID)</span></label>
+              <input type="text" id="sm-accountid" placeholder="Cloudflare Account ID">
+            </div>
             <div class="form-group">
               <label>Access Key</label>
               <input type="text" id="sm-accesskey" placeholder="Access Key ID">
@@ -1321,6 +1325,7 @@ export function renderDashboard(isDemo: boolean = false): string {
       document.getElementById('sm-name').value='';document.getElementById('sm-name').disabled=false;
       document.getElementById('sm-endpoint').value='';
       document.getElementById('sm-bucket').value='';
+      document.getElementById('sm-accountid').value='';
       document.getElementById('sm-region').value='';
       document.getElementById('sm-accesskey').value='';
       document.getElementById('sm-secretkey').value='';
@@ -1368,8 +1373,11 @@ export function renderDashboard(isDemo: boolean = false): string {
         if(!epField.value.trim()&&preset.endpoint)epField.value=preset.endpoint;
         if(!rgField.value.trim()&&preset.regions&&preset.regions.length>0)rgField.value=preset.regions[0];
       }
-      // 更新占位符为 provider 预设的提示
-      if(preset.endpointPlaceholder)epField.placeholder=preset.endpointPlaceholder;
+      // 更新占位符为 provider 预设的提示，防止残留上一次的状态
+      epField.placeholder=preset.endpointPlaceholder||preset.endpoint||'s3.amazonaws.com';
+      // 动态显示或隐藏 Cloudflare Account ID 输入框
+      var accGroup=document.getElementById('sm-account-id-group');
+      if(accGroup)accGroup.style.display=p==='r2'?'block':'none';
     }
 
     async function editStorageBackend(name){
@@ -1390,6 +1398,22 @@ export function renderDashboard(isDemo: boolean = false): string {
       document.getElementById('sm-sync').checked=b.sync!==false;
       document.getElementById('sm-test-result').className='sm-test-result';
       document.getElementById('sm-save-btn').textContent='更新';document.getElementById('sm-save-btn').disabled=false;
+      
+      // 动态显示或隐藏 Cloudflare Account ID 输入框并填充值
+      var accGroup=document.getElementById('sm-account-id-group');
+      if(b.provider==='r2'){
+        if(accGroup)accGroup.style.display='block';
+        if(b.endpoint){
+          var match=b.endpoint.match(/^([^.]+)\.r2\.cloudflarestorage\.com$/);
+          document.getElementById('sm-accountid').value=match?match[1]:'';
+        }else{
+          document.getElementById('sm-accountid').value='';
+        }
+      }else{
+        if(accGroup)accGroup.style.display='none';
+        document.getElementById('sm-accountid').value='';
+      }
+
       // 折叠高级选项
       document.getElementById('sm-adv-options').classList.remove('open');
       document.getElementById('sm-adv-arrow').textContent='▶';
@@ -1398,9 +1422,9 @@ export function renderDashboard(isDemo: boolean = false): string {
       credHint.style.display='block';
       if(b.hasCredentials){credHint.style.color='#10b981';credHint.textContent='🔑 已配置密钥（留空则保持不变）'}
       else{credHint.style.color='#ef4444';credHint.textContent='⚠️ 未配置密钥，请填写'}
-      // 更新 provider 占位符
+      // 更新 provider 占位符，防止残留上一次的状态
       var preset=PROVIDER_PRESETS[b.provider];
-      if(preset&&preset.endpointPlaceholder)document.getElementById('sm-endpoint').placeholder=preset.endpointPlaceholder;
+      if(preset)document.getElementById('sm-endpoint').placeholder=preset.endpointPlaceholder||preset.endpoint||'s3.amazonaws.com';
       document.getElementById('storage-modal').style.display='flex';
     }
 
@@ -1421,6 +1445,22 @@ export function renderDashboard(isDemo: boolean = false): string {
       var preset=PROVIDER_PRESETS[provider];
       if(!endpoint&&preset&&preset.endpoint)endpoint=preset.endpoint;
       if(!region&&preset&&preset.regions&&preset.regions.length>0)region=preset.regions[0];
+
+      // 自动替换 <region> 占位符
+      if(endpoint&&region){
+        endpoint=endpoint.replace('<region>',region);
+      }
+
+      // 如果是 r2，替换 <account_id> 占位符
+      if(provider==='r2'){
+        var accountId=document.getElementById('sm-accountid').value.trim();
+        if(accountId){
+          endpoint=endpoint.replace('<account_id>',accountId);
+        }else if(endpoint.includes('<account_id>')){
+          alert('请填写 Cloudflare Account ID');
+          return;
+        }
+      }
 
       if(!name||!endpoint||!bucket||!region){alert('请填写所有必填字段');return}
       if(!_editingName&&(!accessKey||!secretKey)){alert('请填写 Access Key 和 Secret Key');return}
@@ -1457,9 +1497,31 @@ export function renderDashboard(isDemo: boolean = false): string {
       var region=document.getElementById('sm-region').value.trim();
       var accessKey=document.getElementById('sm-accesskey').value.trim();
       var secretKey=document.getElementById('sm-secretkey').value.trim();
+      var provider=document.getElementById('sm-provider').value;
+
+      // 自动从 provider 预设补全 endpoint 和 region
+      var preset=PROVIDER_PRESETS[provider];
+      if(!endpoint&&preset&&preset.endpoint)endpoint=preset.endpoint;
+      if(!region&&preset&&preset.regions&&preset.regions.length>0)region=preset.regions[0];
+
+      // 自动替换 <region> 占位符
+      if(endpoint&&region){
+        endpoint=endpoint.replace('<region>',region);
+      }
+
+      // 如果是 r2，替换 <account_id> 占位符
+      if(provider==='r2'){
+        var accountId=document.getElementById('sm-accountid').value.trim();
+        if(accountId){
+          endpoint=endpoint.replace('<account_id>',accountId);
+        }else if(endpoint.includes('<account_id>')){
+          alert('请填写 Cloudflare Account ID');
+          return;
+        }
+      }
+
       if(!endpoint||!bucket||!region||!accessKey||!secretKey){alert('请填写所有字段后再测试');return}
 
-      var provider=document.getElementById('sm-provider').value;
       var pathStyle=PROVIDER_PRESETS[provider]?PROVIDER_PRESETS[provider].pathStyle:false;
 
       var btn=document.getElementById('sm-test-btn');
@@ -1588,8 +1650,8 @@ export function renderDashboard(isDemo: boolean = false): string {
         var action=e.action==='deleted'?'deleted':(e.label==='racy'?'racy':'kept');
         var actionText=e.action==='deleted'?'已删除':(e.label==='racy'?'保留(racy)':'保留(safe)');
         return '<div class="log-item">'+
-          '<div class="log-main"><div class="log-name">'+escapeHtml(e.name||e.key)+'</div>'+
-          '<div class="log-meta">'+time+' · '+escapeHtml(e.ip||'-')+' · '+(e.provider||'')+' · adult='+(e.scores?.adult||0).toFixed(2)+' racy='+(e.scores?.racy||0).toFixed(2)+'</div></div>'+
+          '<div class="log-main"><div class="log-name">'+esc(e.name||e.key)+'</div>'+
+          '<div class="log-meta">'+time+' · '+esc(e.ip||'-')+' · '+(e.provider||'')+' · adult='+(e.scores?.adult||0).toFixed(2)+' racy='+(e.scores?.racy||0).toFixed(2)+'</div></div>'+
           '<div class="log-actions"><span class="mod-badge '+action+'">'+actionText+'</span></div>'+
         '</div>';
       }).join('');
