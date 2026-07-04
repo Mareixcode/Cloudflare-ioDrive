@@ -41,6 +41,9 @@ on:
       s3_region:
         description: 'S3 区域 (仅启用 S3 时填写)'
         required: false
+      kv_namespace_id:
+        description: 'KV 缓存命名空间 ID (CACHE_KV，留空则不启用缓存)'
+        required: false
 
 permissions:
   contents: read
@@ -158,6 +161,27 @@ jobs:
           [observability.logs]
           enabled = true
           invocation_logs = true
+          EOF
+
+          # 追加 KV 缓存绑定（如果填写了 KV ID）
+          if [ -n "${{ inputs.kv_namespace_id }}" ]; then
+            cat >> wrangler.toml <<EOF
+
+          [[kv_namespaces]]
+          binding = "CACHE_KV"
+          id = "${{ inputs.kv_namespace_id }}"
+          EOF
+          fi
+
+          # 追加 Rate Limiter 限流绑定
+          cat >> wrangler.toml <<EOF
+
+          [[ratelimits]]
+          name = "RATE_LIMITER"
+          namespace_id = "1001"
+          [ratelimits.simple]
+          limit = 100
+          period = 60
           EOF
 
           echo "✅ wrangler.toml 已生成"

@@ -5,6 +5,14 @@ export interface Env {
   // D1 元数据库（可选：未配置时回退到 R2 JSON 文件存储）
   META_DB?: D1Database;
 
+  // KV 缓存命名空间（可选，用于文件索引缓存）
+  CACHE_KV?: KVNamespace;
+
+  // Cloudflare Workers 速率限制服务绑定（可选）
+  RATE_LIMITER?: {
+    limit: (options: { key: string }) => Promise<{ success: boolean }>;
+  };
+
   // Environment variables
   ADMIN_USER: string;
   ADMIN_PASS: string;       // set via wrangler secret

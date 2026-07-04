@@ -9,6 +9,7 @@ import { createMetadataStore } from './metadata-store';
 import { incrementUploadKeyUsage } from './upload-keys';
 import { moderateAndCleanup } from './moderation';
 import { s3PutObject, s3CreateMultipart, s3UploadPart, s3CompleteMultipart, s3AbortMultipart } from './s3-upload';
+import { clearFileCache } from './cache';
 
 export const uploadPublicRoutes = new Hono<{ Bindings: Env }>();
 
@@ -81,6 +82,9 @@ uploadPublicRoutes.post('/single', async (c) => {
       source: uploadKeyId ? 'upload-key' : 'public',
     }),
   );
+
+  // 清除对应的 KV 缓存
+  c.executionCtx.waitUntil(clearFileCache(c.env, '', key2));
 
   return c.json({ ok: true, key: key2, name: file.name, s3: s3Ok });
 });
@@ -256,6 +260,9 @@ uploadPublicRoutes.post('/complete', async (c) => {
       source: (mpMeta?.source || 'public') as 'dashboard' | 'public' | 'upload-key',
     }),
   );
+
+  // 清除对应的 KV 缓存
+  c.executionCtx.waitUntil(clearFileCache(c.env, '', key));
 
   return c.json({ ok: true, key: object.key, name });
 });

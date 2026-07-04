@@ -12,6 +12,7 @@ import { Hono } from 'hono';
 import { SignJWT } from 'jose';
 import type { Env } from './types';
 import { createStorageEngine } from './storage-engine';
+import { clearFileCache } from './cache';
 import { propfindResponse, propstatOk, type DavItem } from './webdav-xml';
 
 export const webdavRoutes = new Hono<{ Bindings: Env }>();
@@ -422,6 +423,9 @@ webdavRoutes.on('COPY', '*', async (c) => {
   await engine.put(destKey, await srcObj.arrayBuffer(), {
     contentType: srcObj.httpMetadata?.contentType,
   });
+
+  // 复制文件后，清除目标父目录的缓存
+  c.executionCtx.waitUntil(clearFileCache(c.env, '', destKey));
 
   return new Response(null, { status: 201, headers: { 'Location': '/dav/' + destKey } });
 });

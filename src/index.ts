@@ -20,8 +20,12 @@ import { ensureD1Schema, createMetadataStore } from './metadata-store';
 import { webdavRoutes } from './webdav';
 import { randomRoutes, randomAdminRoutes } from './random';
 import { moderationAdminRoutes } from './moderation-admin';
+import { rateLimitMiddleware } from './rate-limit';
 
 const app = new Hono<{ Bindings: Env }>();
+
+// 启用 Cloudflare 防火墙限流中间件
+app.use('*', rateLimitMiddleware());
 
 app.use('/api/*', cors());
 

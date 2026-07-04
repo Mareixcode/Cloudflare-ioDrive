@@ -10,6 +10,7 @@
 import type { Env, ModerationConfig, ModerationLogEntry } from './types';
 import { createMetadataStore } from './metadata-store';
 import { createStorageEngine } from './storage-engine';
+import { clearFileCache } from './cache';
 
 const MODERATION_CONFIG_KEY = '_config/moderation';
 export const MODERATION_LOG_PREFIX = '_moderation_logs/';
@@ -164,6 +165,7 @@ export async function moderateAndCleanup(env: Env, info: {
       try {
         const engine = await createStorageEngine(env);
         await engine.delete(info.key);
+        await clearFileCache(env, '', info.key);
       } catch (e) {
         console.error('Failed to delete moderated file:', e);
       }

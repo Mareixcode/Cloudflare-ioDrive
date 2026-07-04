@@ -4,6 +4,7 @@ import { jwtAuth } from './auth';
 import { uniqueKey } from './upload-utils';
 import { createStorageEngine, createStorageEngineForBackend } from './storage-engine';
 import type { StorageEngine } from './storage-engine';
+import { getFileCache, setFileCache, getFoldersCache, setFoldersCache, clearFileCache, clearFileCacheBatch } from './cache';
 
 export const filesRoutes = new Hono<{ Bindings: Env }>();
 
@@ -19,8 +20,15 @@ async function getEngine(env: import('./types').Env, backend?: string): Promise<
 filesRoutes.get('/', async (c) => {
   try {
     const backend = c.req.query('backend') || '';
-    const engine = await getEngine(c.env, backend);
     const prefix = c.req.query('prefix') || 'uploads/';
+
+    // 优先从 KV 缓存获取
+    const cached = await getFileCache(c.env, backend, prefix);
+    if (cached) {
+      return c.json(cached);
+    }
+
+    const engine = await getEngine(c.env, backend);
     const listed = await engine.list(prefix, { delimiter: '/' });
 
     const files: FileMeta[] = listed.objects
@@ -52,7 +60,11 @@ filesRoutes.get('/', async (c) => {
       });
     }
 
-    return c.json({ files, folders: folderMetas, currentPath, ancestors });
+    const result = { files, folders: folderMetas, currentPath, ancestors };
+    // 异步回写缓存，不阻塞响应
+    c.executionCtx.waitUntil(setFileCache(c.env, backend, prefix, result));
+
+    return c.json(result);
   } catch (err: any) {
     console.error('files list error:', err);
     return c.json({ error: 'Failed to list files: ' + (err?.message || String(err)) }, 500);
@@ -62,6 +74,13 @@ filesRoutes.get('/', async (c) => {
 // List all folders recursively (for move picker)
 filesRoutes.get('/folders', async (c) => {
   const backend = c.req.query('backend') || '';
+
+  // 优先从 KV 缓存获取
+  const cached = await getFoldersCache(c.env, backend);
+  if (cached) {
+    return c.json({ folders: cached });
+  }
+
   const engine = await getEngine(c.env, backend);
   const folders: string[] = [];
   async function collect(prefix: string, depth: number) {
@@ -73,6 +92,9 @@ filesRoutes.get('/folders', async (c) => {
     }
   }
   await collect('uploads/', 0);
+
+  // 异步写入缓存
+  c.executionCtx.waitUntil(setFoldersCache(c.env, backend, folders));
   return c.json({ folders });
 });
 
@@ -86,6 +108,7 @@ filesRoutes.post('/folder', async (c) => {
   const existing = await engine.head(folderKey);
   if (existing) return c.json({ error: '文件夹已存在' }, 409);
   await engine.put(folderKey, '', { contentType: 'application/x-directory' });
+  c.executionCtx.waitUntil(clearFileCache(c.env, backend, folderKey));
   return c.json({ ok: true, path: folderKey });
 });
 
@@ -111,6 +134,7 @@ filesRoutes.delete('/:key{.+}', async (c) => {
   } else {
     await engine.delete(key);
   }
+  c.executionCtx.waitUntil(clearFileCache(c.env, backend, key));
   return c.json({ ok: true });
 });
 
@@ -135,6 +159,7 @@ filesRoutes.post('/batch-delete', async (c) => {
   for (let i = 0; i < expanded.length; i += batchSize) {
     await engine.delete(expanded.slice(i, i + batchSize));
   }
+  c.executionCtx.waitUntil(clearFileCacheBatch(c.env, backend, keys));
   return c.json({ ok: true, deleted: expanded.length });
 });
 
@@ -156,6 +181,7 @@ filesRoutes.post('/move', async (c) => {
     await engine.put(newKey, await obj.arrayBuffer(), { contentType });
     await engine.delete(key);
   }
+  c.executionCtx.waitUntil(clearFileCacheBatch(c.env, backend, [...keys, targetPath]));
   return c.json({ ok: true });
 });
 

@@ -84,6 +84,27 @@ jobs:
           invocation_logs = true
           EOF
 
+          # Append CACHE_KV namespace if secret is present
+          if [ -n "${{ secrets.CACHE_KV_ID }}" ]; then
+            cat >> wrangler.toml <<'EOF'
+
+          [[kv_namespaces]]
+          binding = "CACHE_KV"
+          id = "${{ secrets.CACHE_KV_ID }}"
+          EOF
+          fi
+
+          # Append RATE_LIMITER rate limit config
+          cat >> wrangler.toml <<'EOF'
+
+          [[ratelimits]]
+          name = "RATE_LIMITER"
+          namespace_id = "1001"
+          [ratelimits.simple]
+          limit = 100
+          period = 60
+          EOF
+
       - name: Create secrets file
         run: |
           cat > .dev.vars <<'EOF'
@@ -170,6 +191,27 @@ jobs:
           [observability.logs]
           enabled = true
           invocation_logs = true
+          EOF
+
+          # Append CACHE_KV namespace if secret is present
+          if [ -n "${{ secrets.CACHE_KV_ID }}" ]; then
+            cat >> wrangler.toml <<'EOF'
+
+          [[kv_namespaces]]
+          binding = "CACHE_KV"
+          id = "${{ secrets.CACHE_KV_ID }}"
+          EOF
+          fi
+
+          # Append RATE_LIMITER rate limit config
+          cat >> wrangler.toml <<'EOF'
+
+          [[ratelimits]]
+          name = "RATE_LIMITER"
+          namespace_id = "1001"
+          [ratelimits.simple]
+          limit = 100
+          period = 60
           EOF
 
       - name: Create secrets file

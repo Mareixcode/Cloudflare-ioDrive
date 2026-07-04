@@ -8,6 +8,7 @@ import { createStorageEngine } from './storage-engine';
 import { createMetadataStore } from './metadata-store';
 import { moderateAndCleanup } from './moderation';
 import { s3PutObject, s3CreateMultipart, s3UploadPart, s3CompleteMultipart, s3AbortMultipart } from './s3-upload';
+import { clearFileCache } from './cache';
 
 export const uploadRoutes = new Hono<{ Bindings: Env }>();
 
@@ -64,6 +65,9 @@ uploadRoutes.post('/single', async (c) => {
       source: 'dashboard',
     }),
   );
+
+  // 清除对应的 KV 缓存
+  c.executionCtx.waitUntil(clearFileCache(c.env, '', key));
 
   return c.json({ ok: true, key, name: file.name, s3: s3Ok });
 });
@@ -228,6 +232,9 @@ uploadRoutes.post('/complete', async (c) => {
       source: 'dashboard',
     }),
   );
+
+  // 清除对应的 KV 缓存
+  c.executionCtx.waitUntil(clearFileCache(c.env, '', key));
 
   return c.json({ ok: true, key: object.key, name });
 });

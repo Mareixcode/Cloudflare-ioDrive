@@ -41,6 +41,19 @@ PUBLIC_UPLOAD_PATH = "uploads/public/"
 # binding = "DRIVE"
 # bucket_name = "YOUR_R2_BUCKET"
 
+# ── KV 缓存命名空间（可选，用于缓存文件索引和列表提升性能） ──────────────
+# [[kv_namespaces]]
+# binding = "CACHE_KV"
+# id = "YOUR_KV_NAMESPACE_ID"
+
+# ── Cloudflare Workers 速率限制服务（防火墙限流） ─────────────────
+# [[ratelimits]]
+# name = "RATE_LIMITER"
+# namespace_id = "1001"
+# [ratelimits.simple]
+# limit = 100
+# period = 60
+
 [observability.logs]
 enabled = true
 invocation_logs = true
