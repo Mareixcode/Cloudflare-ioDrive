@@ -79,6 +79,7 @@ randomRoutes.get('/', async (c) => {
         });
         if (all.length >= 1000) break;
       }
+      if (all.length >= 1000) break;
       cursor = listed.truncated ? listed.cursor : undefined;
     } while (cursor);
     entries = all;

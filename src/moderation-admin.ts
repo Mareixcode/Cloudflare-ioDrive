@@ -44,17 +44,24 @@ moderationAdminRoutes.put('/config', async (c) => {
       return c.json({ error: 'nsfwjs 需要 apiPath' }, 400);
     }
   }
+  const meta = createMetadataStore(c.env);
+  const existingCfg = await meta.get<ModerationConfig>(MODERATION_CONFIG_KEY);
+
+  let apiKey = body.apiKey;
+  if (apiKey && apiKey.startsWith('***')) {
+    apiKey = existingCfg?.apiKey;
+  }
+
   const cfg: ModerationConfig = {
     enabled: !!body.enabled,
     provider: body.provider,
-    apiKey: body.apiKey,
+    apiKey,
     apiPath: body.apiPath,
     thresholds: body.thresholds,
     fileTypes: body.fileTypes?.length ? body.fileTypes : DEFAULT_CONFIG.fileTypes,
     maxSize: body.maxSize || DEFAULT_CONFIG.maxSize,
     updatedAt: new Date().toISOString(),
   };
-  const meta = createMetadataStore(c.env);
   await meta.put(MODERATION_CONFIG_KEY, cfg);
   return c.json({ ok: true, config: { ...cfg, apiKey: cfg.apiKey ? '***' + cfg.apiKey.slice(-4) : '' } });
 });

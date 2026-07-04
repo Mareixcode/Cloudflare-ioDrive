@@ -127,10 +127,24 @@ filesRoutes.delete('/:key{.+}', async (c) => {
   const key = c.req.param('key');
   assertValidKey(key);
   if (key.endsWith('/')) {
-    const listed = await engine.list(key);
-    const keys = listed.objects.map((o) => o.key);
-    if (keys.length > 0) await engine.delete(keys);
-    if (!keys.includes(key)) await engine.delete(key);
+    let cursor: string | undefined;
+    const allKeys: string[] = [];
+    do {
+      const listed = await engine.list(key, { limit: 1000, cursor });
+      for (const o of listed.objects) {
+        allKeys.push(o.key);
+      }
+      cursor = listed.truncated ? listed.cursor : undefined;
+    } while (cursor);
+
+    if (allKeys.length > 0) {
+      for (let i = 0; i < allKeys.length; i += 100) {
+        await engine.delete(allKeys.slice(i, i + 100));
+      }
+    }
+    if (!allKeys.includes(key)) {
+      await engine.delete(key).catch(() => {});
+    }
   } else {
     await engine.delete(key);
   }
@@ -148,9 +162,15 @@ filesRoutes.post('/batch-delete', async (c) => {
   const expanded: string[] = [];
   for (const key of keys) {
     if (key.endsWith('/')) {
-      const listed = await engine.list(key);
-      expanded.push(...listed.objects.map((o) => o.key));
-      if (!listed.objects.some((o) => o.key === key)) expanded.push(key);
+      let cursor: string | undefined;
+      do {
+        const listed = await engine.list(key, { limit: 1000, cursor });
+        for (const o of listed.objects) {
+          expanded.push(o.key);
+        }
+        cursor = listed.truncated ? listed.cursor : undefined;
+      } while (cursor);
+      if (!expanded.includes(key)) expanded.push(key);
     } else {
       expanded.push(key);
     }
@@ -171,15 +191,45 @@ filesRoutes.post('/move', async (c) => {
   if (!keys?.length || !targetPath) return c.json({ error: 'no keys or target' }, 400);
   assertValidKeys(keys);
   for (const key of keys) {
-    if (key.endsWith('/')) continue;
-    const obj = await engine.get(key);
-    if (!obj) continue;
-    const head = await engine.head(key);
-    const contentType = head?.contentType || 'application/octet-stream';
-    const filename = key.split('/').pop() || key;
-    const newKey = await uniqueKey(engine, targetPath, filename);
-    await engine.put(newKey, await obj.arrayBuffer(), { contentType });
-    await engine.delete(key);
+    if (key.endsWith('/')) {
+      // 移动文件夹
+      const folderName = key.slice(0, -1).split('/').pop();
+      if (!folderName) continue;
+      const targetFolder = targetPath + folderName + '/';
+
+      let cursor: string | undefined;
+      const allObjects: string[] = [];
+      do {
+        const listed = await engine.list(key, { cursor });
+        for (const o of listed.objects) {
+          allObjects.push(o.key);
+        }
+        cursor = listed.truncated ? listed.cursor : undefined;
+      } while (cursor);
+
+      for (const objKey of allObjects) {
+        const relativePath = objKey.substring(key.length);
+        const newKey = targetFolder + relativePath;
+        const fileObj = await engine.get(objKey);
+        if (!fileObj) continue;
+        const head = await engine.head(objKey);
+        const contentType = head?.contentType || 'application/octet-stream';
+        await engine.put(newKey, await fileObj.arrayBuffer(), { contentType });
+        await engine.delete(objKey);
+      }
+
+      await engine.delete(key).catch(() => {});
+      await engine.put(targetFolder, '', { contentType: 'application/x-directory' }).catch(() => {});
+    } else {
+      const obj = await engine.get(key);
+      if (!obj) continue;
+      const head = await engine.head(key);
+      const contentType = head?.contentType || 'application/octet-stream';
+      const filename = key.split('/').pop() || key;
+      const newKey = await uniqueKey(engine, targetPath, filename);
+      await engine.put(newKey, await obj.arrayBuffer(), { contentType });
+      await engine.delete(key);
+    }
   }
   c.executionCtx.waitUntil(clearFileCacheBatch(c.env, backend, [...keys, targetPath]));
   return c.json({ ok: true });

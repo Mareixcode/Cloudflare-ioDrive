@@ -4,6 +4,7 @@ import type { Env, StorageBackendConfig } from './types';
 import type { S3Config } from './s3-upload';
 import { s3PutObject, s3CreateMultipart, s3UploadPart, s3CompleteMultipart } from './s3-upload';
 import { getAllS3ConfigsAsync, detectPathStyle, loadRuntimeConfig } from './storage';
+import { amzDate, sha256Hex, hmacHex, getSigningKey } from './s3-sign';
 
 // ── 列表结果类型 ─────────────────────────────
 
@@ -180,35 +181,19 @@ class S3StorageEngine implements StorageEngine {
   }
 
   private amzDate(): string {
-    return new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, '') + 'Z';
+    return amzDate();
   }
 
-  private async sha256Hex(data: string): Promise<string> {
-    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
-    return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('');
+  private sha256Hex(data: string): Promise<string> {
+    return sha256Hex(data);
   }
 
-  private async hmacBytes(key: CryptoKey | Uint8Array, data: string): Promise<Uint8Array> {
-    const k = key instanceof Uint8Array
-      ? await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
-      : key;
-    return new Uint8Array(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(data)));
+  private hmacHex(key: CryptoKey | Uint8Array, data: string): Promise<string> {
+    return hmacHex(key, data);
   }
 
-  private async hmacHex(key: CryptoKey | Uint8Array, data: string): Promise<string> {
-    return [...await this.hmacBytes(key, data)].map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-
-  private async getSigningKey(secret: string, date: string, region: string, service: string): Promise<Uint8Array> {
-    const enc = new TextEncoder();
-    const kSecret = await crypto.subtle.importKey('raw', enc.encode('AWS4' + secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-    const kDate = await this.hmacBytes(kSecret, date);
-    const kDateKey = await crypto.subtle.importKey('raw', kDate, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-    const kRegion = await this.hmacBytes(kDateKey, region);
-    const kRegionKey = await crypto.subtle.importKey('raw', kRegion, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-    const kService = await this.hmacBytes(kRegionKey, service);
-    const kServiceKey = await crypto.subtle.importKey('raw', kService, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-    return await this.hmacBytes(kServiceKey, 'aws4_request');
+  private getSigningKey(secret: string, date: string, region: string, service: string): Promise<Uint8Array> {
+    return getSigningKey(secret, date, region, service);
   }
 
   async list(prefix: string, options?: ListOptions): Promise<ListResult> {

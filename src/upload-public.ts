@@ -222,7 +222,7 @@ uploadPublicRoutes.post('/complete', async (c) => {
   }
 
   // Sync complete to S3 backends
-  const mpMeta = await meta.get<{ s3UploadIds: Record<string, string>; source?: string; uploadKeyId?: string; uploadKeyLabel?: string }>('_multipart/' + uploadId);
+  const mpMeta = await meta.get<{ s3UploadIds: Record<string, string>; source?: string; uploadKeyId?: string; uploadKeyLabel?: string; filename?: string }>('_multipart/' + uploadId);
   if (mpMeta) {
     const { s3UploadIds } = mpMeta;
     const s3Cfgs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
@@ -236,8 +236,7 @@ uploadPublicRoutes.post('/complete', async (c) => {
 
   const name = key.split('/').pop() || key;
   // contentType 在 S3 primary 模式下 complete 不返回；从 mpMeta 恢复
-  const mpData2 = await meta.get<{ filename?: string }>('_multipart/' + uploadId).catch(() => null);
-  const filename = mpData2?.filename || name;
+  const filename = mpMeta?.filename || name;
   const contentType = getContentType(filename);
   c.executionCtx.waitUntil(
     writeUploadLog(c.env, {

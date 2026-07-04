@@ -291,14 +291,6 @@ const D1_INIT_INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_kv_label          ON kv(label) WHERE label IS NOT NULL',
 ];
 
-const D1_INIT_TRIGGER = `
-CREATE TRIGGER IF NOT EXISTS kv_updated_at
-    AFTER UPDATE ON kv
-BEGIN
-    UPDATE kv SET updated_at = unixepoch() WHERE id = NEW.id;
-END
-`;
-
 let initPromise: Promise<void> | null = null;
 
 export async function ensureD1Schema(env: Env): Promise<void> {
@@ -315,7 +307,6 @@ export async function ensureD1Schema(env: Env): Promise<void> {
         for (const idx of D1_INIT_INDEXES) {
           await env.META_DB!.exec(idx);
         }
-        await env.META_DB!.exec(D1_INIT_TRIGGER);
       }
     } catch (e) {
       console.error('D1 schema init failed:', e);
