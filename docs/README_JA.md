@@ -268,6 +268,50 @@ chmod +x setup.sh
 - **Curl / Aria2 コマンド**：共有ページで CLI ダウンロードコマンドを自動生成
 - **管理者アカウント設定可能**：ダッシュボードから管理者のユーザー名とパスワードを変更、パスワードは SHA-256 暗号化保存
 
+### 🗄️ D1 メタデータベース
+
+- **切り替え可能なバックエンド**：`wrangler.toml` で `META_DB` binding を設定すると D1（SQLite）モードが有効化されます。未設定の場合は R2 JSON ファイルモードに自動フォールバック
+- **単一テーブル key-value 設計**：ImgBed の簡素化されたパターンを参考に、すべてのメタデータ（共有、ダウンロードログ、アップロードログ、アップロードリンク、設定、マルチパートアップロードセッション、モデレーションログ）を `kv` テーブルに統一保存
+- **自動テーブル作成**：最初のリクエスト時に `d1.exec(initSql)` をトリガーしてテーブル構造とインデックスを作成（冪等）
+- **ワンショットマイグレーション**：`POST /api/migration/r2-to-d1` を呼び出して R2 の `_config/`、`_shares/`、`_dl_logs/`、`_ul_logs/`、`_upload_keys/`、`_multipart/`、`_moderation_logs/` を一括で D1 に書き込み
+- **フェイルオーバー安全**：D1 の障害は try/catch で捕捉され、R2 JSON にフォールバック
+
+### 🔌 WebDAV ドライブマウント
+
+- **完全な読み書き**：`OPTIONS / PROPFIND / GET / PUT / DELETE / MKCOL / MOVE / COPY / PROPPATCH` の9つのメソッドに対応
+- **HTTP Basic 認証**：`WEBDAV_USER` / `WEBDAV_PASS`（`wrangler secret put` で注入）で設定
+- **マウント方法**：
+  - Windows エクスプローラー：`net use Z: https://<host>/dav /user:user pass`
+  - macOS Finder：「移動」→「サーバへ接続」→ `https://<host>/dav`
+  - RaiDrive / Cyberduck / Mountain Duck：URL + ユーザー名とパスワードを入力
+- **既存ロジック再利用**：WebDAV 内部で短期 JWT（5分）を使って `POST /api/upload/single`、`DELETE /api/files/{key}` などの API を呼び出し、アップロード同期 + ログ + モデレーションを自動的に再利用
+- **パスセキュリティ**：`_` プレフィックス（内部ファイル）、`..` 逆参照、バックスラッシュ、URL 二重エンコードを拒否
+- **デモドメインのブロック**：`demo.iodevo.com` での WebDAV 呼び出しは一律 403
+
+### 🎲 ランダム画像 API
+
+- **エンドポイントシグネチャ**：`GET /random?dir=uploads/photos&content=image&orientation=auto&type=img&form=text`
+- **3つの返却形式**：
+  - `type=img` → 画像へ 302 リダイレクト
+  - `type=url` → JSON 形式の完全 URL
+  - `form=text` → プレーンテキスト URL
+  - デフォルト → JSON 相対パス
+- **Workers Cache キャッシュ**：ディレクトリインデックスは `dir` ごとに 24時間キャッシュされ、繰り返しアクセスはミリ秒で応答
+- **ホワイトリスト制御**：`RANDOM_ALLOWED_DIRS` CSV で許可されたディレクトリを設定、空欄 = 制限なし
+- **方向フィルター**：`orientation=auto` のときは User-Agent から推測（mobile → portrait、desktop → landscape）
+
+### 🛡️ コンテンツモデレーション
+
+- **デフォルト無効**：`_config/moderation` が未設定の場合は完全にスキップされ、パフォーマンスへの影響はゼロ
+- **書き込み後モデレーション（非同期）**：アップロード成功 → `c.executionCtx.waitUntil(moderateAndCleanup)` → レスポンスをブロックしない
+- **複数プロバイダー**：
+  - `moderatecontent`：`https://api.moderatecontent.com/moderate/` を呼び出し
+  - `nsfwjs`：セルフホストの NSFWJS インスタンスを呼び出し
+- **8秒タイムアウト**：`AbortSignal.timeout(8000)` で API のハングを防止
+- **ヒットルール**：adult（デフォルト閾値 0.9）→ 物理削除 + モデレーションログ書き込み；racy（0.7）→ ログのみ
+- **管理者 UI**：ダッシュボードサイドバーの「モデレーションログ」タブで確認 / クリア / プロバイダーテスト
+- **除外ルール**：`maxSize`（デフォルト 20MB）を超えるか、contentType がホワイトリスト（`image/jpeg/png/webp/gif`）外 → スキップ
+
 ---
 
 ## 🏗️ アーキテクチャ
@@ -567,6 +611,22 @@ npm run deploy
 | `S3_ACCESS_KEY` | S3 アクセスキー（シークレット） | - |
 | `S3_SECRET_KEY` | S3 シークレットキー（シークレット） | - |
 | `PUBLIC_UPLOAD_PATH` | デフォルトのパブリックアップロードパス | `uploads/public/` |
+| `WEBDAV_ENABLED` | WebDAV マスタースイッチ（`true` / `false`） | `false` |
+| `WEBDAV_USER` | WebDAV HTTP Basic ユーザー名（`wrangler secret put` で注入推奨） | - |
+| `WEBDAV_PASS` | WebDAV HTTP Basic パスワード（`wrangler secret put` で注入推奨） | - |
+| `RANDOM_ENABLED` | ランダム画像 API マスタースイッチ | `false` |
+| `RANDOM_ALLOWED_DIRS` | ランダム API で許可するディレクトリの CSV（空 = 制限なし） | 空 |
+
+#### D1 メタデータベース（オプション、有効化後はメタデータを SQLite に保存）
+
+```toml
+[[d1_databases]]
+binding = "META_DB"
+database_name = "iodrive-meta"
+database_id = "<your-d1-uuid>"
+```
+
+D1 を有効化した後、`POST /api/migration/r2-to-d1`（JWT 認証必須）を呼び出して既存の R2 JSON を一度だけ移行します。
 
 ### ルート設定
 
@@ -606,6 +666,8 @@ drive/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml                    # GitHub Actions CI/CD 設定
+├── database/
+│   └── init.sql                      # D1 Schema（D1 を有効化した際に使用）
 ├── docs/
 │   ├── README_EN.md                  # 英語ドキュメント
 │   ├── README_JA.md                  # 日本語ドキュメント
@@ -621,7 +683,7 @@ drive/
 │           ├── share-link-1.png      # 共有リンクのスクリーンショット - デスクトップ
 │           └── share-link-2.png      # 共有リンクのスクリーンショット - CLIダウンロード
 ├── src/
-│   ├── index.ts                      # 🚀 アプリエントリ：ルート登録、ページルート、SEO
+│   ├── index.ts                      # 🚀 アプリエントリ：ルート登録、ページルート、SEO、D1 自動テーブル作成
 │   ├── auth.ts                       # 🔐 JWT 認証：ログイン、JWT 署名/検証ミドルウェア、レート制限
 │   ├── files.ts                      # 📁 ファイル CRUD：一覧、フォルダ作成、削除、一括削除、移動
 │   ├── upload.ts                     # 📤 ダッシュボードアップロード：単一、マルチパート（init/part/complete/abort）
@@ -632,16 +694,26 @@ drive/
 │   ├── download.ts                   # ⬇️ ダウンロードサービス：事前署名付き URL 生成、ダウンロードログ、ビーコン追跡
 │   ├── share.ts                      # 🔗 共有サービス：作成、一覧、削除、バッチ、公開情報
 │   ├── s3-upload.ts                  # ☁️ S3 アップロード：AWS Signature V4 実装（単一 + マルチパート）
+│   ├── storage-engine.ts             # 🧰 ストレージエンジン抽象化：R2 / S3 統一インターフェース
+│   ├── storage-config.ts             # 🗄 マルチバックエンドストレージ設定管理
+│   ├── metadata-store.ts             # 🗄 メタデータ抽象レイヤー：R2 JSON / D1 二重実装を自動切替
+│   ├── moderation.ts                 # 🛡 コンテンツモデレーション Provider インターフェース + ModerateContent / NSFWJS 実装
+│   ├── moderation-admin.ts           # 🛡 モデレーション設定 / ログ / テスト API
+│   ├── random.ts                     # 🎲 ランダム画像 API（Workers Cache キャッシュ付き）
+│   ├── webdav.ts                     # 🔌 WebDAV サービス（完全な RW + HTTP Basic 認証）
+│   ├── webdav-xml.ts                 # 🔌 WebDAV PROPFIND XML 生成
 │   ├── turnstile.ts                  # 🛡 Turnstile 検証：サーバーサイドトークン検証
 │   ├── ua-parser.ts                  # 🔍 UA パーサー：ブラウザ、OS、デバイスタイプ判定
-│   ├── types.ts                      # 📐 型定義：Env、JwtPayload、FileMeta、ShareRecord 等
+│   ├── types.ts                      # 📐 型定義：Env、JwtPayload、FileMeta、ShareRecord、ModerationConfig 等
 │   └── html/
-│       ├── dashboard.ts              # 管理 SPA（ファイル/ダウンロード/アップロード/共有/アップロードキー — 5ビュー）
+│       ├── dashboard.ts              # 管理 SPA（モデレーションログ含む6ビュー）
 │       ├── login.ts                  # ログインページ
 │       ├── share.ts                  # 公開共有ダウンロードページ
 │       ├── upload-key.ts             # アップロードリンクページ（期限付きアップロード）
 │       ├── public-upload.ts          # パブリックアップロードページ（ログイン不要）
 │       └── demo.ts                   # デモサイトのランディングページ
+├── scripts/
+│   └── migrate-to-d1.ts              # ワンショット R2→D1 メタデータマイグレーションスクリプト
 ├── wrangler.toml                     # 本番環境デプロイ設定
 ├── wrangler.toml.example             # 設定ファイルテンプレート
 ├── wrangler.demo.toml                # デモ環境デプロイ設定
@@ -1024,6 +1096,129 @@ R2 事前署名付きダウンロード URL を生成（ダッシュボード用
 #### `GET /api/upload-keys/validate/:id`（公開）
 
 アップロードキーを検証します。
+
+---
+
+### D1 マイグレーション API
+
+#### `POST /api/migration/r2-to-d1`（JWT 必須）
+
+R2 内の `_config/` / `_shares/` / `_dl_logs/` / `_ul_logs/` / `_upload_keys/` / `_multipart/` / `_moderation_logs/` プレフィックスを持つ JSON ファイルを一括で読み取り、D1 に書き込みます。事前に `META_DB` binding が設定されている必要があります。冪等です。
+
+**レスポンス：**
+
+```json
+{
+  "ok": true,
+  "stats": { "_config/": 1, "_shares/": 5, "_dl_logs/": 23 },
+  "errors": []
+}
+```
+
+### ランダム画像 API（公開）
+
+#### `GET /random`
+
+**クエリパラメータ：**
+
+| パラメータ | 説明 | デフォルト |
+|------|------|------|
+| `dir` | ディレクトリ（`RANDOM_ALLOWED_DIRS` ホワイトリスト内である必要あり） | 空（ルート） |
+| `content` | contentType による包含フィルター | `image` |
+| `orientation` | `all` / `auto` / `landscape` / `portrait` / `square` | `all` |
+| `type` | `img`（302 リダイレクト） / `url`（JSON 完全 URL） / 空（JSON 相対パス） | 空 |
+| `form` | `text`（プレーンテキスト URL） | 空 |
+
+**例：**
+
+```bash
+# デフォルト JSON
+curl https://drive.example.com/random?dir=uploads/photos
+
+# プレーンテキスト URL
+curl https://drive.example.com/random?dir=uploads/photos&form=text
+
+# 画像へ 302 リダイレクト
+curl -L https://drive.example.com/random?dir=uploads/photos&type=img
+```
+
+#### `POST /api/random/refresh`（JWT 必須）
+
+指定ディレクトリの Workers Cache 内のランダムインデックスキャッシュをクリアします。
+
+```json
+{ "dirs": ["uploads/photos", "uploads/wallpapers"] }
+```
+
+### コンテンツモデレーション API（JWT 必須）
+
+#### `GET /api/moderation/config`
+
+モデレーション設定を読み取ります（apiKey はマスクされた値を返します）。
+
+#### `PUT /api/moderation/config`
+
+モデレーション設定を書き込みます。
+
+```json
+{
+  "enabled": true,
+  "provider": "moderatecontent",
+  "apiKey": "your-key",
+  "thresholds": { "adult": 0.9, "racy": 0.7 },
+  "fileTypes": ["image/jpeg", "image/png", "image/webp", "image/gif"],
+  "maxSize": 20971520
+}
+```
+
+#### `POST /api/moderation/test`
+
+プロバイダーをテストします（実データには影響しません）。
+
+```json
+{ "url": "https://example.com/test.jpg" }
+```
+
+#### `GET /api/moderation/logs`
+
+モデレーションログ一覧を読み取り（新しい順、最大500件）。
+
+#### `DELETE /api/moderation/logs`
+
+すべてのモデレーションログをクリアします。
+
+#### `DELETE /api/moderation/logs/:id`
+
+単一のモデレーションログエントリを削除します。
+
+### WebDAV
+
+`/dav/*` パス（JWT 不要、HTTP Basic 認証を使用）：
+
+| メソッド | 用途 |
+|------|------|
+| `OPTIONS` | `DAV: 1, 2` と Allow ヘッダーを返却 |
+| `PROPFIND` | ディレクトリ / ファイルメタデータ一覧、207 Multi-Status XML |
+| `GET` | ファイルストリームダウンロード / ディレクトリ HTML 一覧 |
+| `PUT` | ファイルアップロード（`/api/upload/single` を再利用、自動同期 + ログ記録） |
+| `DELETE` | 削除（`/api/files/{key}` を再利用） |
+| `MKCOL` | ディレクトリ作成（`/` で終わる） |
+| `MOVE` | 移動 / リネーム（`/api/files/move` を再利用） |
+| `COPY` | コピー |
+| `PROPPATCH` | 200 OK no-op |
+
+**マウント例：**
+
+```bash
+# Windows エクスプローラー
+net use Z: https://drive.example.com/dav /user:webdav_user webdav_pass
+
+# macOS Finder
+# 「移動」→「サーバへ接続」→ https://drive.example.com/dav
+
+# Linux (davfs2)
+mount -t davfs https://drive.example.com/dav /mnt/iodrive
+```
 
 ---
 

@@ -268,6 +268,50 @@ Every upload is logged in detail:
 - **Curl / Aria2 Commands**: Auto-generated CLI download commands on share pages
 - **Configurable Admin Account**: Change admin username and password from the dashboard, passwords stored with SHA-256 encryption
 
+### 🗄️ D1 Metadata Database
+
+- **Switchable Backend**: Configure the `META_DB` binding in `wrangler.toml` to enable D1 (SQLite) mode; automatically falls back to R2 JSON file mode when not configured
+- **Single-Table Key-Value Design**: Inspired by ImgBed's simplified pattern, all metadata (shares, download logs, upload logs, upload keys, config, multipart sessions, moderation logs) is stored in a single `kv` table
+- **Auto-Init**: First request triggers `d1.exec(initSql)` to create the table schema and indexes (idempotent)
+- **One-Time Migration**: Call `POST /api/migration/r2-to-d1` to batch-write R2 data from `_config/`, `_shares/`, `_dl_logs/`, `_ul_logs/`, `_upload_keys/`, `_multipart/`, `_moderation_logs/` into D1
+- **Graceful Fallback**: D1 failures are caught by try/catch and fall back to R2 JSON
+
+### 🔌 WebDAV Drive Mount
+
+- **Full Read/Write**: Supports nine methods: `OPTIONS / PROPFIND / GET / PUT / DELETE / MKCOL / MOVE / COPY / PROPPATCH`
+- **HTTP Basic Auth**: Configured via `WEBDAV_USER` / `WEBDAV_PASS` (injected via `wrangler secret put`)
+- **Mount Methods**:
+  - Windows Explorer: `net use Z: https://<host>/dav /user:user pass`
+  - macOS Finder: "Go" → "Connect to Server" → `https://<host>/dav`
+  - RaiDrive / Cyberduck / Mountain Duck: Enter URL + username and password
+- **Reuses Existing Logic**: Internally uses short-lived JWT (5 minutes) to call `POST /api/upload/single`, `DELETE /api/files/{key}`, etc., automatically reusing upload sync + logs + moderation
+- **Path Safety**: Rejects `_` prefix (internal files), `..` reverse traversal, backslashes, and double URL encoding
+- **Demo Domain Block**: All WebDAV requests from `demo.iodevo.com` return 403
+
+### 🎲 Random Image API
+
+- **Endpoint Signature**: `GET /random?dir=uploads/photos&content=image&orientation=auto&type=img&form=text`
+- **Three Return Formats**:
+  - `type=img` → 302 redirect to the image
+  - `type=url` → JSON with full URL
+  - `form=text` → Plain text URL
+  - Default → JSON with relative path
+- **Workers Cache**: Directory indexes cached by `dir` for 24 hours, repeated access returns in milliseconds
+- **Whitelist Control**: `RANDOM_ALLOWED_DIRS` CSV configures allowed directories; empty = unrestricted
+- **Orientation Filter**: When `orientation=auto`, inferred from User-Agent (mobile → portrait, desktop → landscape)
+
+### 🛡️ Content Moderation
+
+- **Disabled by Default**: Completely skipped when `_config/moderation` is not configured, with zero performance impact
+- **Post-Upload Review (Async)**: After successful upload → `c.executionCtx.waitUntil(moderateAndCleanup)` → non-blocking response
+- **Multiple Providers**:
+  - `moderatecontent`: Calls `https://api.moderatecontent.com/moderate/`
+  - `nsfwjs`: Calls a self-hosted NSFWJS instance
+- **8-Second Timeout**: `AbortSignal.timeout(8000)` prevents API hangs
+- **Hit Rules**: adult (default threshold 0.9) → physically delete file + write moderation log; racy (0.7) → log only
+- **Admin UI**: View / clear / test Provider from the "Moderation Logs" tab in the dashboard sidebar
+- **Exemption Rules**: Files larger than `maxSize` (default 20MB) or with contentType not in the whitelist (`image/jpeg/png/webp/gif`) → skipped
+
 ---
 
 ## 🏗️ Architecture
@@ -567,6 +611,22 @@ After deployment, visit `https://YOUR_DOMAIN` to start using ioDrive.
 | `S3_ACCESS_KEY` | S3 Access Key (secret) | - |
 | `S3_SECRET_KEY` | S3 Secret Key (secret) | - |
 | `PUBLIC_UPLOAD_PATH` | Default public upload path | `uploads/public/` |
+| `WEBDAV_ENABLED` | WebDAV master switch (`true` / `false`) | `false` |
+| `WEBDAV_USER` | WebDAV HTTP Basic username (recommend injecting via `wrangler secret put`) | - |
+| `WEBDAV_PASS` | WebDAV HTTP Basic password (recommend injecting via `wrangler secret put`) | - |
+| `RANDOM_ENABLED` | Random Image API master switch | `false` |
+| `RANDOM_ALLOWED_DIRS` | CSV list of directories allowed by the Random API (empty = unrestricted) | empty |
+
+#### D1 Metadata Database (optional, uses SQLite for metadata when enabled)
+
+```toml
+[[d1_databases]]
+binding = "META_DB"
+database_name = "iodrive-meta"
+database_id = "<your-d1-uuid>"
+```
+
+After enabling D1, call `POST /api/migration/r2-to-d1` (JWT auth required) to one-shot migrate existing R2 JSON data.
 
 ### Route Configuration
 
@@ -606,6 +666,8 @@ drive/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml                    # GitHub Actions CI/CD configuration
+├── database/
+│   └── init.sql                      # D1 Schema (used when D1 is enabled)
 ├── docs/
 │   ├── README_EN.md                  # English documentation
 │   ├── README_JA.md                  # Japanese documentation
@@ -621,7 +683,7 @@ drive/
 │           ├── share-link-1.png      # Share link screenshot - desktop
 │           └── share-link-2.png      # Share link screenshot - CLI download
 ├── src/
-│   ├── index.ts                      # 🚀 App entry: route registration, page routes, SEO
+│   ├── index.ts                      # 🚀 App entry: route registration, page routes, SEO, D1 auto-init
 │   ├── auth.ts                       # 🔐 JWT auth: login, JWT signing/verification middleware, rate limiting
 │   ├── files.ts                      # 📁 File CRUD: list, create folder, delete, batch delete, move
 │   ├── upload.ts                     # 📤 Dashboard upload: single, multipart (init/part/complete/abort)
@@ -632,16 +694,26 @@ drive/
 │   ├── download.ts                   # ⬇️ Download service: presigned URL generation, download logs, beacon tracking
 │   ├── share.ts                      # 🔗 Share service: create, list, delete, batch, public info
 │   ├── s3-upload.ts                  # ☁️ S3 upload: AWS Signature V4 implementation (single + multipart)
+│   ├── storage-engine.ts             # 🧰 Storage engine abstraction: unified R2 / S3 interface
+│   ├── storage-config.ts             # 🗄 Multi-backend storage configuration management
+│   ├── metadata-store.ts             # 🗄 Metadata abstraction layer: R2 JSON / D1 dual-backend auto-switch
+│   ├── moderation.ts                 # 🛡 Content moderation Provider interface + ModerateContent / NSFWJS implementations
+│   ├── moderation-admin.ts           # 🛡 Moderation config / logs / test API
+│   ├── random.ts                     # 🎲 Random Image API (with Workers Cache)
+│   ├── webdav.ts                     # 🔌 WebDAV service (full RW + HTTP Basic auth)
+│   ├── webdav-xml.ts                 # 🔌 WebDAV PROPFIND XML generation
 │   ├── turnstile.ts                  # 🛡 Turnstile verification: server-side token validation
 │   ├── ua-parser.ts                  # 🔍 UA parser: browser, OS, device type detection
-│   ├── types.ts                      # 📐 Type definitions: Env, JwtPayload, FileMeta, ShareRecord, etc.
+│   ├── types.ts                      # 📐 Type definitions: Env, JwtPayload, FileMeta, ShareRecord, ModerationConfig, etc.
 │   └── html/
-│       ├── dashboard.ts              # Admin SPA (files/downloads/uploads/shares/upload keys — five views)
+│       ├── dashboard.ts              # Admin SPA (six views including moderation logs)
 │       ├── login.ts                  # Login page
 │       ├── share.ts                  # Public share download page
 │       ├── upload-key.ts             # Upload link page (time-limited upload)
 │       ├── public-upload.ts          # Public upload page (no login required)
 │       └── demo.ts                   # Demo site landing page
+├── scripts/
+│   └── migrate-to-d1.ts              # One-time R2→D1 metadata migration script
 ├── wrangler.toml                     # Production deployment config
 ├── wrangler.toml.example             # Configuration file template
 ├── wrangler.demo.toml                # Demo environment deployment config
@@ -1024,6 +1096,129 @@ Delete a specific upload key.
 #### `GET /api/upload-keys/validate/:id` (Public)
 
 Validate an upload key.
+
+---
+
+### D1 Migration API
+
+#### `POST /api/migration/r2-to-d1` (JWT Required)
+
+Batch-read JSON files in R2 with the `_config/` / `_shares/` / `_dl_logs/` / `_ul_logs/` / `_upload_keys/` / `_multipart/` / `_moderation_logs/` prefixes and write them to D1. Requires the `META_DB` binding to be configured. Idempotent.
+
+**Response:**
+
+```json
+{
+  "ok": true,
+  "stats": { "_config/": 1, "_shares/": 5, "_dl_logs/": 23 },
+  "errors": []
+}
+```
+
+### Random Image API (Public)
+
+#### `GET /random`
+
+**Query Parameters:**
+
+| Parameter | Description | Default |
+|------|------|------|
+| `dir` | Directory (must be in the `RANDOM_ALLOWED_DIRS` whitelist) | empty (root) |
+| `content` | Filter by contentType inclusion | `image` |
+| `orientation` | `all` / `auto` / `landscape` / `portrait` / `square` | `all` |
+| `type` | `img` (302 redirect) / `url` (JSON full URL) / empty (JSON relative path) | empty |
+| `form` | `text` (plain text URL) | empty |
+
+**Example:**
+
+```bash
+# Default JSON
+curl https://drive.example.com/random?dir=uploads/photos
+
+# Plain text URL
+curl https://drive.example.com/random?dir=uploads/photos&form=text
+
+# 302 redirect to image
+curl -L https://drive.example.com/random?dir=uploads/photos&type=img
+```
+
+#### `POST /api/random/refresh` (JWT Required)
+
+Clear the random index cache for specified directories in Workers Cache.
+
+```json
+{ "dirs": ["uploads/photos", "uploads/wallpapers"] }
+```
+
+### Content Moderation API (JWT Required)
+
+#### `GET /api/moderation/config`
+
+Read moderation configuration (apiKey is masked).
+
+#### `PUT /api/moderation/config`
+
+Write moderation configuration.
+
+```json
+{
+  "enabled": true,
+  "provider": "moderatecontent",
+  "apiKey": "your-key",
+  "thresholds": { "adult": 0.9, "racy": 0.7 },
+  "fileTypes": ["image/jpeg", "image/png", "image/webp", "image/gif"],
+  "maxSize": 20971520
+}
+```
+
+#### `POST /api/moderation/test`
+
+Test Provider (does not affect real data).
+
+```json
+{ "url": "https://example.com/test.jpg" }
+```
+
+#### `GET /api/moderation/logs`
+
+Read moderation log list (newest first, up to 500 entries).
+
+#### `DELETE /api/moderation/logs`
+
+Clear all moderation logs.
+
+#### `DELETE /api/moderation/logs/:id`
+
+Delete a single moderation log entry.
+
+### WebDAV
+
+`/dav/*` path (no JWT required, uses HTTP Basic):
+
+| Method | Purpose |
+|------|------|
+| `OPTIONS` | Returns `DAV: 1, 2` and Allow headers |
+| `PROPFIND` | List directory / file metadata, 207 Multi-Status XML |
+| `GET` | Stream file download / directory HTML listing |
+| `PUT` | Upload file (reuses `/api/upload/single`, auto-sync + logs) |
+| `DELETE` | Delete (reuses `/api/files/{key}`) |
+| `MKCOL` | Create directory (ends with `/`) |
+| `MOVE` | Move / rename (reuses `/api/files/move`) |
+| `COPY` | Copy |
+| `PROPPATCH` | 200 OK no-op |
+
+**Mount Examples:**
+
+```bash
+# Windows Explorer
+net use Z: https://drive.example.com/dav /user:webdav_user webdav_pass
+
+# macOS Finder
+# "Go" → "Connect to Server" → https://drive.example.com/dav
+
+# Linux (davfs2)
+mount -t davfs https://drive.example.com/dav /mnt/iodrive
+```
 
 ---
 

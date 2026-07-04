@@ -1,10 +1,13 @@
 import { Hono } from 'hono';
-import type { Env, UploadKey, UploadPart } from './types';
+import type { Env, UploadPart } from './types';
 import { verifyTurnstile } from './turnstile';
 import { getContentType, uniqueKey } from './upload-utils';
 import { writeUploadLog } from './upload-logs';
 import { getAllS3ConfigsAsync } from './storage';
 import { createStorageEngine } from './storage-engine';
+import { createMetadataStore } from './metadata-store';
+import { incrementUploadKeyUsage } from './upload-keys';
+import { moderateAndCleanup } from './moderation';
 import { s3PutObject, s3CreateMultipart, s3UploadPart, s3CompleteMultipart, s3AbortMultipart } from './s3-upload';
 
 export const uploadPublicRoutes = new Hono<{ Bindings: Env }>();
@@ -30,19 +33,16 @@ uploadPublicRoutes.post('/single', async (c) => {
   }
 
   const engine = await createStorageEngine(c.env);
+  const meta = createMetadataStore(c.env);
 
   let keyLabel: string | undefined;
   if (uploadKeyId) {
-    const data = await engine.get('_upload_keys/' + uploadKeyId + '.json');
-    if (!data) return c.json({ error: '上传链接不存在' }, 404);
-    const key: UploadKey = JSON.parse(await data.text());
+    const key = await incrementUploadKeyUsage(meta, uploadKeyId);
+    if (!key) return c.json({ error: '上传链接不存在' }, 404);
     if (!key.active) return c.json({ error: '上传链接已禁用' }, 403);
     if (new Date(key.expires) < new Date()) return c.json({ error: '上传链接已过期' }, 410);
     path = key.path;
     keyLabel = key.label;
-    // 使用 CAS 避免竞态：乐观递增 + 带条件写入
-    key.usedCount = (key.usedCount || 0) + 1;
-    await engine.put('_upload_keys/' + uploadKeyId + '.json', JSON.stringify(key), { contentType: 'application/json' });
   }
 
   if (!path.endsWith('/')) path += '/';
@@ -72,6 +72,16 @@ uploadPublicRoutes.post('/single', async (c) => {
     }),
   );
 
+  c.executionCtx.waitUntil(
+    moderateAndCleanup(c.env, {
+      key: key2, name: file.name, size: file.size,
+      contentType,
+      ip,
+      ua: c.req.header('User-Agent') || '',
+      source: uploadKeyId ? 'upload-key' : 'public',
+    }),
+  );
+
   return c.json({ ok: true, key: key2, name: file.name, s3: s3Ok });
 });
 
@@ -89,18 +99,16 @@ uploadPublicRoutes.post('/init', async (c) => {
   }
 
   const engine = await createStorageEngine(c.env);
+  const meta = createMetadataStore(c.env);
 
   let keyLabel: string | undefined;
   if (uploadKeyId) {
-    const data = await engine.get('_upload_keys/' + uploadKeyId + '.json');
-    if (!data) return c.json({ error: '上传链接不存在' }, 404);
-    const key: UploadKey = JSON.parse(await data.text());
+    const key = await incrementUploadKeyUsage(meta, uploadKeyId);
+    if (!key) return c.json({ error: '上传链接不存在' }, 404);
     if (!key.active) return c.json({ error: '上传链接已禁用' }, 403);
     if (new Date(key.expires) < new Date()) return c.json({ error: '上传链接已过期' }, 410);
     path = key.path;
     keyLabel = key.label;
-    key.usedCount = (key.usedCount || 0) + 1;
-    await engine.put('_upload_keys/' + uploadKeyId + '.json', JSON.stringify(key), { contentType: 'application/json' });
   }
 
   if (!path.endsWith('/')) path += '/';
@@ -118,10 +126,10 @@ uploadPublicRoutes.post('/init', async (c) => {
     if (s3Uid) s3UploadIds[s3cfg.bucket] = s3Uid;
   }
   if (Object.keys(s3UploadIds).length > 0) {
-    await engine.put('_multipart/' + mp.uploadId + '.json', JSON.stringify({
+    await meta.put('_multipart/' + mp.uploadId, {
       s3UploadIds, key: key2, filename, uploadKeyId, uploadKeyLabel: keyLabel,
       source: uploadKeyId ? 'upload-key' : 'public',
-    }), { contentType: 'application/json' });
+    });
   }
 
   return c.json({ uploadId: mp.uploadId, key: key2 });
@@ -139,6 +147,7 @@ uploadPublicRoutes.post('/part', async (c) => {
   if (!(chunk instanceof File)) return c.json({ error: '无效的文件数据' }, 400);
 
   const engine = await createStorageEngine(c.env);
+  const meta = createMetadataStore(c.env);
   const chunkBuf = await chunk.arrayBuffer();
 
   // Primary part upload
@@ -147,9 +156,9 @@ uploadPublicRoutes.post('/part', async (c) => {
     const r2mp = c.env.DRIVE.resumeMultipartUpload(key, uploadId);
     partResult = await r2mp.uploadPart(partNumber, chunkBuf);
   } else {
-    const meta = await engine.get('_multipart/' + uploadId + '.json');
-    if (!meta) throw new Error('分片上传会话不存在');
-    const { s3UploadIds } = JSON.parse(await meta.text());
+    const mpData = await meta.get<{ s3UploadIds: Record<string, string> }>('_multipart/' + uploadId);
+    if (!mpData) throw new Error('分片上传会话不存在');
+    const { s3UploadIds } = mpData;
     const s3Cfgs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
     const primaryS3 = s3Cfgs[0];
     const primaryUid = primaryS3 ? s3UploadIds[primaryS3.bucket] : null;
@@ -160,9 +169,9 @@ uploadPublicRoutes.post('/part', async (c) => {
   }
 
   // Sync part to S3 backends (fire-and-forget)
-  const meta = await engine.get('_multipart/' + uploadId + '.json');
-  if (meta) {
-    const { s3UploadIds } = JSON.parse(await meta.text());
+  const mpData2 = await meta.get<{ s3UploadIds: Record<string, string> }>('_multipart/' + uploadId);
+  if (mpData2) {
+    const { s3UploadIds } = mpData2;
     const s3Cfgs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
     const syncCfgs = c.env.DRIVE ? s3Cfgs : s3Cfgs.slice(1);
     for (const s3cfg of syncCfgs) {
@@ -182,15 +191,16 @@ uploadPublicRoutes.post('/complete', async (c) => {
   if (!uploadId || !key || !parts?.length) return c.json({ error: '缺少参数' }, 400);
 
   const engine = await createStorageEngine(c.env);
+  const meta = createMetadataStore(c.env);
   let object: { key: string; size: number };
 
   if (c.env.DRIVE) {
     const r2mp = c.env.DRIVE.resumeMultipartUpload(key, uploadId);
     object = await r2mp.complete(parts);
   } else {
-    const meta = await engine.get('_multipart/' + uploadId + '.json');
-    if (meta) {
-      const { s3UploadIds } = JSON.parse(await meta.text());
+    const mpData = await meta.get<{ s3UploadIds: Record<string, string> }>('_multipart/' + uploadId);
+    if (mpData) {
+      const { s3UploadIds } = mpData;
       const s3Cfgs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
       const primaryS3 = s3Cfgs[0];
       const primaryUid = primaryS3 ? s3UploadIds[primaryS3.bucket] : null;
@@ -208,21 +218,23 @@ uploadPublicRoutes.post('/complete', async (c) => {
   }
 
   // Sync complete to S3 backends
-  let meta: any = {};
-  const metaObj = await engine.get('_multipart/' + uploadId + '.json');
-  if (metaObj) {
-    meta = JSON.parse(await metaObj.text());
-    const { s3UploadIds } = meta;
+  const mpMeta = await meta.get<{ s3UploadIds: Record<string, string>; source?: string; uploadKeyId?: string; uploadKeyLabel?: string }>('_multipart/' + uploadId);
+  if (mpMeta) {
+    const { s3UploadIds } = mpMeta;
     const s3Cfgs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
     const syncCfgs = c.env.DRIVE ? s3Cfgs : s3Cfgs.slice(1);
     for (const s3cfg of syncCfgs) {
       const s3Uid = s3UploadIds?.[s3cfg.bucket];
       if (s3Uid) s3CompleteMultipart(s3cfg, key, s3Uid, parts).catch(() => {});
     }
-    await engine.delete('_multipart/' + uploadId + '.json');
+    await meta.delete('_multipart/' + uploadId);
   }
 
   const name = key.split('/').pop() || key;
+  // contentType 在 S3 primary 模式下 complete 不返回；从 mpMeta 恢复
+  const mpData2 = await meta.get<{ filename?: string }>('_multipart/' + uploadId).catch(() => null);
+  const filename = mpData2?.filename || name;
+  const contentType = getContentType(filename);
   c.executionCtx.waitUntil(
     writeUploadLog(c.env, {
       key, name, size: object.size,
@@ -230,9 +242,18 @@ uploadPublicRoutes.post('/complete', async (c) => {
       country: c.req.header('CF-IPCountry') || '',
       ua: c.req.header('User-Agent') || '',
       referer: c.req.header('Referer') || '',
-      source: meta.source || 'public',
-      uploadKeyId: meta.uploadKeyId,
-      uploadKeyLabel: meta.uploadKeyLabel,
+      source: (mpMeta?.source || 'public') as 'dashboard' | 'public' | 'upload-key',
+      uploadKeyId: mpMeta?.uploadKeyId,
+      uploadKeyLabel: mpMeta?.uploadKeyLabel,
+    }),
+  );
+
+  c.executionCtx.waitUntil(
+    moderateAndCleanup(c.env, {
+      key, name, size: object.size, contentType,
+      ip: c.req.header('CF-Connecting-IP') || '',
+      ua: c.req.header('User-Agent') || '',
+      source: (mpMeta?.source || 'public') as 'dashboard' | 'public' | 'upload-key',
     }),
   );
 
@@ -247,6 +268,7 @@ uploadPublicRoutes.post('/abort', async (c) => {
   if (!uploadId || !key) return c.json({ error: '缺少参数' }, 400);
 
   const engine = await createStorageEngine(c.env);
+  const meta = createMetadataStore(c.env);
 
   if (c.env.DRIVE) {
     const r2mp = c.env.DRIVE.resumeMultipartUpload(key, uploadId);
@@ -254,10 +276,9 @@ uploadPublicRoutes.post('/abort', async (c) => {
   }
 
   // 取消 S3 后端的多段上传
-  const mpMeta = await engine.get('_multipart/' + uploadId + '.json').catch(() => null);
-  if (mpMeta) {
+  const mpData = await meta.get<{ s3UploadIds: Record<string, string> }>('_multipart/' + uploadId).catch(() => null);
+  if (mpData) {
     try {
-      const mpData = JSON.parse(await mpMeta.text());
       if (mpData.s3UploadIds) {
         const s3Cfgs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
         for (const s3cfg of s3Cfgs) {
@@ -268,7 +289,7 @@ uploadPublicRoutes.post('/abort', async (c) => {
     } catch {}
   }
 
-  await engine.delete('_multipart/' + uploadId + '.json').catch(() => {});
+  await meta.delete('_multipart/' + uploadId).catch(() => {});
 
   return c.json({ ok: true });
 });

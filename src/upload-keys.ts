@@ -1,7 +1,9 @@
 import { Hono } from 'hono';
 import type { Env, UploadKey } from './types';
 import { jwtAuth } from './auth';
-import { createStorageEngine } from './storage-engine';
+import { createMetadataStore } from './metadata-store';
+
+const UPLOAD_KEYS_PREFIX = '_upload_keys/';
 
 // ── Admin routes (JWT) ──
 export const uploadKeyRoutes = new Hono<{ Bindings: Env }>();
@@ -9,7 +11,7 @@ uploadKeyRoutes.use('*', jwtAuth);
 
 // Create upload key
 uploadKeyRoutes.post('/', async (c) => {
-  const engine = await createStorageEngine(c.env);
+  const meta = createMetadataStore(c.env);
   const body = await c.req.json<{ label: string; path: string; expiresHours: number }>();
   const { label, expiresHours } = body;
   let path = body.path || 'uploads/';
@@ -32,31 +34,31 @@ uploadKeyRoutes.post('/', async (c) => {
     active: true,
   };
 
-  await engine.put('_upload_keys/' + id + '.json', JSON.stringify(key), { contentType: 'application/json' });
+  await meta.put(UPLOAD_KEYS_PREFIX + id, key);
 
   return c.json({ id, url: '/u/' + id, expires: key.expires });
 });
 
 // List upload keys
 uploadKeyRoutes.get('/', async (c) => {
-  const engine = await createStorageEngine(c.env);
-  const listed = await engine.list('_upload_keys/');
-  const keys: UploadKey[] = [];
-  for (const obj of listed.objects) {
+  const meta = createMetadataStore(c.env);
+  const { keys } = await meta.list(UPLOAD_KEYS_PREFIX, { limit: 500 });
+  const out: UploadKey[] = [];
+  for (const k of keys) {
     try {
-      const data = await engine.get(obj.key);
-      if (data) keys.push(JSON.parse(await data.text()));
+      const item = await meta.get<UploadKey>(k);
+      if (item) out.push(item);
     } catch {}
   }
-  keys.sort((a, b) => (a.created > b.created ? -1 : 1));
-  return c.json({ keys });
+  out.sort((a, b) => (a.created > b.created ? -1 : 1));
+  return c.json({ keys: out });
 });
 
 // Delete upload key
 uploadKeyRoutes.delete('/:id', async (c) => {
-  const engine = await createStorageEngine(c.env);
+  const meta = createMetadataStore(c.env);
   const id = c.req.param('id');
-  await engine.delete('_upload_keys/' + id + '.json');
+  await meta.delete(UPLOAD_KEYS_PREFIX + id);
   return c.json({ ok: true });
 });
 
@@ -65,18 +67,27 @@ export const uploadKeyPublicRoutes = new Hono<{ Bindings: Env }>();
 
 // Validate upload key
 uploadKeyPublicRoutes.get('/validate/:id', async (c) => {
-  const engine = await createStorageEngine(c.env);
+  const meta = createMetadataStore(c.env);
   const id = c.req.param('id');
-  const data = await engine.get('_upload_keys/' + id + '.json');
-  if (!data) return c.json({ valid: false, error: '链接不存在' });
-
-  const key: UploadKey = JSON.parse(await data.text());
+  const key = await meta.get<UploadKey>(UPLOAD_KEYS_PREFIX + id);
+  if (!key) return c.json({ valid: false, error: '链接不存在' });
 
   if (!key.active) return c.json({ valid: false, error: '链接已禁用' });
   if (new Date(key.expires) < new Date()) return c.json({ valid: false, error: '链接已过期', expired: true });
 
   return c.json({ valid: true, label: key.label, path: key.path });
 });
+
+/**
+ * 原子递增 usedCount
+ */
+export async function incrementUploadKeyUsage(meta: ReturnType<typeof createMetadataStore>, id: string): Promise<UploadKey | null> {
+  const key = await meta.get<UploadKey>(UPLOAD_KEYS_PREFIX + id);
+  if (!key) return null;
+  key.usedCount = (key.usedCount || 0) + 1;
+  await meta.put(UPLOAD_KEYS_PREFIX + id, key);
+  return key;
+}
 
 function generateId(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';

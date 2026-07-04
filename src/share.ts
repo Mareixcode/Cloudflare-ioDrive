@@ -2,6 +2,9 @@ import { Hono } from 'hono';
 import type { Env, ShareRecord } from './types';
 import { jwtAuth } from './auth';
 import { createStorageEngine } from './storage-engine';
+import { createMetadataStore } from './metadata-store';
+
+const SHARES_PREFIX = '_shares/';
 
 // Public routes (no auth required)
 export const sharePublicRoutes = new Hono<{ Bindings: Env }>();
@@ -9,14 +12,13 @@ export const sharePublicRoutes = new Hono<{ Bindings: Env }>();
 // Get share info (public, for share page)
 sharePublicRoutes.get('/info/:token', async (c) => {
   const engine = await createStorageEngine(c.env);
+  const meta = createMetadataStore(c.env);
   const token = c.req.param('token');
-  const data = await engine.get('_shares/' + token + '.json');
+  const record = await meta.get<ShareRecord>(SHARES_PREFIX + token);
 
-  if (!data) {
+  if (!record) {
     return c.json({ error: '分享链接不存在或已过期' }, 404);
   }
-
-  const record: ShareRecord = JSON.parse(await data.text());
 
   if (record.expires && new Date(record.expires) < new Date()) {
     return c.json({ error: '分享链接已过期' }, 410);
@@ -42,7 +44,7 @@ shareRoutes.use('*', jwtAuth);
 
 // Create share link
 shareRoutes.post('/', async (c) => {
-  const engine = await createStorageEngine(c.env);
+  const meta = createMetadataStore(c.env);
   const body = await c.req.json<{ key: string; name: string; noAd?: boolean }>();
   const { key, name, noAd } = body;
 
@@ -61,38 +63,39 @@ shareRoutes.post('/', async (c) => {
     downloads: 0,
   };
 
-  await engine.put('_shares/' + token + '.json', JSON.stringify(record), { contentType: 'application/json' });
+  await meta.put(SHARES_PREFIX + token, record);
 
   return c.json({ token, url: '/s/' + token });
 });
 
 // List shares
 shareRoutes.get('/', async (c) => {
-  const engine = await createStorageEngine(c.env);
-  const listed = await engine.list('_shares/');
+  const meta = createMetadataStore(c.env);
+  const { keys } = await meta.list(SHARES_PREFIX, { limit: 500 });
   const shares: ShareRecord[] = [];
 
-  for (const obj of listed.objects) {
-    const data = await engine.get(obj.key);
-    if (data) {
-      shares.push(JSON.parse(await data.text()));
-    }
+  for (const key of keys) {
+    const rec = await meta.get<ShareRecord>(key);
+    if (rec) shares.push(rec);
   }
+
+  // 按创建时间倒序
+  shares.sort((a, b) => b.created.localeCompare(a.created));
 
   return c.json({ shares });
 });
 
 // Delete share
 shareRoutes.delete('/:token', async (c) => {
-  const engine = await createStorageEngine(c.env);
+  const meta = createMetadataStore(c.env);
   const token = c.req.param('token');
-  await engine.delete('_shares/' + token + '.json');
+  await meta.delete(SHARES_PREFIX + token);
   return c.json({ ok: true });
 });
 
 // Batch share
 shareRoutes.post('/batch', async (c) => {
-  const engine = await createStorageEngine(c.env);
+  const meta = createMetadataStore(c.env);
   const { keys } = await c.req.json<{ keys: string[] }>();
   if (!keys?.length) return c.json({ error: 'no keys' }, 400);
 
@@ -102,12 +105,24 @@ shareRoutes.post('/batch', async (c) => {
     const token = generateToken();
     const name = key.split('/').pop() || key;
     const record: ShareRecord = { token, key, name, created: new Date().toISOString(), noAd: false, downloads: 0 };
-    await engine.put('_shares/' + token + '.json', JSON.stringify(record), { contentType: 'application/json' });
+    await meta.put(SHARES_PREFIX + token, record);
     shares.push({ token, name });
   }
 
   return c.json({ shares, count: shares.length });
 });
+
+/**
+ * 原子地递增分享下载计数。需要先读到最新记录，然后用 read-modify-write。
+ * 多数场景下并发量低，简单实现即可。
+ */
+export async function incrementShareDownload(meta: ReturnType<typeof createMetadataStore>, token: string): Promise<ShareRecord | null> {
+  const record = await meta.get<ShareRecord>(SHARES_PREFIX + token);
+  if (!record) return null;
+  record.downloads = (record.downloads || 0) + 1;
+  await meta.put(SHARES_PREFIX + token, record);
+  return record;
+}
 
 function generateToken(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';

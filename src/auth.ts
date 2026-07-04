@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { SignJWT, jwtVerify } from 'jose';
 import type { Env, JwtPayload } from './types';
 import { verifyTurnstile } from './turnstile';
+import { createMetadataStore, type MetadataStore } from './metadata-store';
 
 // ── Admin config ─────────────────────────
 
@@ -11,35 +12,26 @@ interface AdminConfig {
   updatedAt: string;
 }
 
-const ADMIN_CONFIG_KEY = '_config/admin.json';
+const ADMIN_CONFIG_KEY = '_config/admin';
 
 async function sha256Hex(data: string): Promise<string> {
   const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
   return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function loadAdminConfig(drive: R2Bucket | undefined): Promise<AdminConfig | null> {
-  if (!drive) return null;
-  try {
-    const obj = await drive.get(ADMIN_CONFIG_KEY);
-    if (!obj) return null;
-    return JSON.parse(await obj.text());
-  } catch {
-    return null;
-  }
+async function loadAdminConfig(meta: MetadataStore): Promise<AdminConfig | null> {
+  return await meta.get<AdminConfig>(ADMIN_CONFIG_KEY);
 }
 
-async function saveAdminConfig(drive: R2Bucket | undefined, config: AdminConfig): Promise<void> {
-  if (!drive) throw new Error('存储未配置：需要 R2 binding');
+async function saveAdminConfig(meta: MetadataStore, config: AdminConfig): Promise<void> {
   config.updatedAt = new Date().toISOString();
-  await drive.put(ADMIN_CONFIG_KEY, JSON.stringify(config), {
-    httpMetadata: { contentType: 'application/json' },
-  });
+  await meta.put(ADMIN_CONFIG_KEY, config);
 }
 
-// 验证凭证：优先 R2 自定义配置，回退到环境变量
+// 验证凭证：优先 R2/D1 自定义配置，回退到环境变量
 async function verifyCredentials(env: Env, username: string, password: string): Promise<boolean> {
-  const adminConfig = await loadAdminConfig(env.DRIVE);
+  const meta = createMetadataStore(env);
+  const adminConfig = await loadAdminConfig(meta);
   if (adminConfig) {
     const hash = await sha256Hex(password);
     return username === adminConfig.username && hash === adminConfig.passwordHash;
@@ -122,7 +114,8 @@ authRoutes.post('/login', async (c) => {
 
 // GET /api/auth/admin-config — 获取管理员配置信息
 authRoutes.get('/admin-config', jwtAuth, async (c) => {
-  const adminConfig = await loadAdminConfig(c.env.DRIVE);
+  const meta = createMetadataStore(c.env);
+  const adminConfig = await loadAdminConfig(meta);
   const username = adminConfig?.username || c.env.ADMIN_USER;
   return c.json({ username, hasCustomConfig: !!adminConfig });
 });
@@ -141,7 +134,8 @@ authRoutes.put('/admin-config', jwtAuth, async (c) => {
   }
 
   // 验证当前密码
-  const adminConfig = await loadAdminConfig(c.env.DRIVE);
+  const meta = createMetadataStore(c.env);
+  const adminConfig = await loadAdminConfig(meta);
   const currentUsername = adminConfig?.username || c.env.ADMIN_USER;
   const valid = await verifyCredentials(c.env, currentUsername, currentPassword);
   if (!valid) {
@@ -155,7 +149,7 @@ authRoutes.put('/admin-config', jwtAuth, async (c) => {
     updatedAt: '',
   };
 
-  await saveAdminConfig(c.env.DRIVE, newConfig);
+  await saveAdminConfig(meta, newConfig);
   return c.json({ ok: true });
 });
 

@@ -2,6 +2,9 @@ export interface Env {
   // Bindings (R2 可选：不配置 [[r2_buckets]] 时为 undefined)
   DRIVE?: R2Bucket;
 
+  // D1 元数据库（可选：未配置时回退到 R2 JSON 文件存储）
+  META_DB?: D1Database;
+
   // Environment variables
   ADMIN_USER: string;
   ADMIN_PASS: string;       // set via wrangler secret
@@ -25,6 +28,15 @@ export interface Env {
   // New: multi-backend storage config
   STORAGE_CONFIG?: string;   // JSON 数组: StorageBackendConfig[]
   S3_CREDENTIALS?: string;   // JSON 对象: { "name": { accessKey, secretKey } }
+
+  // WebDAV（可选）
+  WEBDAV_ENABLED?: string;   // 'true' 启用
+  WEBDAV_USER?: string;
+  WEBDAV_PASS?: string;
+
+  // 随机图片 API（可选）
+  RANDOM_ENABLED?: string;        // 'true' 启用
+  RANDOM_ALLOWED_DIRS?: string;   // CSV，留空 = 允许 uploads/ 下所有目录
 }
 
 // 多后端存储配置
@@ -117,4 +129,34 @@ export interface UploadKey {
   expires: string;
   usedCount: number;
   active: boolean;
+}
+
+export interface ModerationConfig {
+  enabled: boolean;
+  provider: 'moderatecontent' | 'nsfwjs' | 'none';
+  apiKey?: string;
+  apiPath?: string;
+  thresholds?: {
+    adult?: number;   // default 0.9
+    racy?: number;    // default 0.7
+  };
+  fileTypes: string[];  // 默认 ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+  maxSize: number;       // 默认 20 * 1024 * 1024 (20MB)
+  updatedAt?: string;
+}
+
+export interface ModerationLogEntry {
+  time: string;
+  key: string;
+  name: string;
+  size: number;
+  contentType: string;
+  ip: string;
+  ua: string;
+  provider: string;
+  label: 'safe' | 'racy' | 'adult';
+  scores: Record<string, number>;
+  reason: 'adult' | 'racy' | 'threshold' | 'safe';
+  action: 'kept' | 'deleted';
+  source: 'dashboard' | 'public' | 'upload-key' | 'webdav';
 }

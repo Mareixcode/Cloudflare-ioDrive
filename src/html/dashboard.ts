@@ -28,7 +28,13 @@ export function renderDashboard(isDemo: boolean = false): string {
     .main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
     #page-files,#page-downloads,#page-uploads,#page-uploadkeys{flex:1;display:flex;flex-direction:column;overflow:hidden}
     #page-account{flex:1;display:flex;flex-direction:column;overflow:hidden}
-    #page-downloads>div,#page-uploads>div,#page-shares>div,#page-uploadkeys>div{flex:1;min-height:0}
+    #page-moderation{flex:1;display:flex;flex-direction:column;overflow:hidden}
+    #page-downloads>div,#page-uploads>div,#page-shares>div,#page-uploadkeys>div,#page-moderation>div{flex:1;min-height:0}
+
+    .mod-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600}
+    .mod-badge.deleted{background:rgba(239,68,68,0.12);color:#ef4444}
+    .mod-badge.racy{background:rgba(245,158,11,0.12);color:#f59e0b}
+    .mod-badge.kept{background:rgba(16,185,129,0.12);color:#10b981}
 
     /* ── Hamburger ── */
     .hamburger{display:none;background:none;border:none;cursor:pointer;padding:6px;color:var(--text);flex-shrink:0;border-radius:6px;transition:background .2s}
@@ -335,6 +341,10 @@ export function renderDashboard(isDemo: boolean = false): string {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
         存储配置
       </a>
+      <a class="nav" data-nav="moderation" onclick="go('moderation')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        审核日志
+      </a>
       <a class="nav" data-nav="account" onclick="go('account')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         账号设置
@@ -544,6 +554,54 @@ export function renderDashboard(isDemo: boolean = false): string {
         </div>
       </div>
 
+      <!-- Moderation page -->
+      <div id="page-moderation" style="display:none">
+        <div style="padding:20px 24px;overflow-y:auto;height:100%">
+          <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px">内容审核</div>
+          <div style="font-size:12px;color:var(--sub);margin-bottom:20px">默认关闭。配置后上传图片会被异步送审，命中规则的文件会被自动删除。</div>
+
+          <!-- 配置卡片 -->
+          <div class="ac-card" style="margin-bottom:20px">
+            <div class="ac-card-title"><span class="ac-icon">🛡️</span>审核配置</div>
+            <div class="form-group">
+              <label><input type="checkbox" id="mod-enabled" style="width:auto;margin-right:6px">启用审核</label>
+            </div>
+            <div class="form-group">
+              <label>审核服务</label>
+              <select id="mod-provider" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none">
+                <option value="none">关闭</option>
+                <option value="moderatecontent">ModerateContent（官方 API）</option>
+                <option value="nsfwjs">NSFWJS（自部署）</option>
+              </select>
+            </div>
+            <div class="form-group" id="mod-apikey-group">
+              <label>API Key（ModerateContent）</label>
+              <input type="text" id="mod-apikey" placeholder="ModerateContent API key">
+            </div>
+            <div class="form-group" id="mod-apipath-group" style="display:none">
+              <label>API 地址（NSFWJS）</label>
+              <input type="text" id="mod-apipath" placeholder="https://your-nsfwjs.example.com/classify">
+            </div>
+            <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+              <button class="btn btn-s" onclick="testModeration()">测试</button>
+              <button class="btn btn-p" onclick="saveModeration()">保存</button>
+            </div>
+            <div id="mod-test-result" class="sm-test-result"></div>
+          </div>
+
+          <!-- 日志 -->
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+            <div style="font-size:14px;font-weight:600">审核日志 <span id="mod-count" style="color:var(--sub);font-weight:400"></span></div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-s" onclick="loadModerationLogs()">刷新</button>
+              <button class="btn btn-s demo-hidden" style="color:#ef4444" onclick="clearModerationLogs()">清空</button>
+            </div>
+          </div>
+          <div class="log-list" id="mod-list"></div>
+          <div id="mod-empty" style="display:none" class="log-empty"><div class="icon">🛡️</div><div style="font-size:15px;font-weight:600">暂无审核记录</div><div style="font-size:12px;margin-top:6px">启用审核后，命中规则的文件会显示在这里。</div></div>
+        </div>
+      </div>
+
       <!-- Account Settings page -->
       <div id="page-account" style="display:none">
         <div style="padding:20px 24px;overflow-y:auto;height:100%;max-width:560px">
@@ -643,6 +701,7 @@ export function renderDashboard(isDemo: boolean = false): string {
       document.getElementById('page-shares').style.display=page==='shares'?'':'none';
       document.getElementById('page-uploadkeys').style.display=page==='uploadkeys'?'':'none';
       document.getElementById('page-storage').style.display=page==='storage'?'':'none';
+      document.getElementById('page-moderation').style.display=page==='moderation'?'':'none';
       document.getElementById('page-account').style.display=page==='account'?'':'none';
       if(page==='files')loadFiles();
       if(page==='uploads')loadUploads();
@@ -650,6 +709,7 @@ export function renderDashboard(isDemo: boolean = false): string {
       if(page==='shares')loadShares();
       if(page==='uploadkeys')loadUploadKeys();
       if(page==='storage')loadStorageBackends();
+      if(page==='moderation'){loadModerationConfig();loadModerationLogs();}
       if(page==='account')loadAdminInfo();
       closeSide();
     }
@@ -1455,6 +1515,90 @@ export function renderDashboard(isDemo: boolean = false): string {
       if(r&&r.ok){showResult(true,'保存成功，下次登录使用新凭证');document.getElementById('ac-current-pass').value='';document.getElementById('ac-new-pass').value='';document.getElementById('ac-confirm-pass').value=''}
       else if(r){var e=await r.json().catch(function(){return{error:'操作失败'}});showResult(false,e.error||'操作失败')}
       else{showResult(false,'网络异常')}
+    }
+
+    // ── Moderation ──
+    function toggleModProviderFields(){
+      var p=document.getElementById('mod-provider').value;
+      document.getElementById('mod-apikey-group').style.display=p==='moderatecontent'?'':'none';
+      document.getElementById('mod-apipath-group').style.display=p==='nsfwjs'?'':'none';
+    }
+    var modProviderEl=document.getElementById('mod-provider');
+    if(modProviderEl)modProviderEl.addEventListener('change',toggleModProviderFields);
+
+    async function loadModerationConfig(){
+      var r=await api('/api/moderation/config');
+      if(!r)return;
+      if(r.ok){var d=await r.json();
+        document.getElementById('mod-enabled').checked=!!d.enabled;
+        document.getElementById('mod-provider').value=d.provider||'none';
+        document.getElementById('mod-apikey').value=d.apiKey||'';
+        document.getElementById('mod-apipath').value=d.apiPath||'';
+        toggleModProviderFields();
+      }
+    }
+
+    async function saveModeration(){
+      var cfg={
+        enabled:document.getElementById('mod-enabled').checked,
+        provider:document.getElementById('mod-provider').value,
+        apiKey:document.getElementById('mod-apikey').value||undefined,
+        apiPath:document.getElementById('mod-apipath').value||undefined,
+        thresholds:{adult:0.9,racy:0.7},
+        fileTypes:['image/jpeg','image/png','image/webp','image/gif'],
+        maxSize:20*1024*1024,
+      };
+      var r=await api('/api/moderation/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
+      if(r&&r.ok){showModResult(true,'保存成功')}
+      else if(r){var e=await r.json().catch(function(){return{}});showModResult(false,e.error||'保存失败')}
+      else{showModResult(false,'网络异常')}
+    }
+
+    async function testModeration(){
+      var url=prompt('输入要测试的图片 URL：','https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/200px-PNG_transparency_demonstration_1.png');
+      if(!url)return;
+      showModResult('testing','正在测试...');
+      var r=await api('/api/moderation/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url})});
+      if(r&&r.ok){var d=await r.json();showModResult(true,'结果：'+d.label+' (adult='+d.scores.adult.toFixed(2)+')')}
+      else if(r){var e=await r.json().catch(function(){return{}});showModResult(false,e.error||'测试失败')}
+      else{showModResult(false,'网络异常')}
+    }
+
+    function showModResult(ok,msg){
+      var el=document.getElementById('mod-test-result');
+      el.className='sm-test-result show '+(ok==='testing'?'testing':(ok?'ok':'err'));
+      el.textContent=msg;
+    }
+
+    async function loadModerationLogs(){
+      var r=await api('/api/moderation/logs');
+      if(!r)return;
+      if(r.ok){var d=await r.json();renderModLogs(d.entries||[])}
+    }
+
+    function renderModLogs(entries){
+      var list=document.getElementById('mod-list');
+      var empty=document.getElementById('mod-empty');
+      var count=document.getElementById('mod-count');
+      count.textContent='('+entries.length+')';
+      if(entries.length===0){list.innerHTML='';empty.style.display='';return}
+      empty.style.display='none';
+      list.innerHTML=entries.map(function(e){
+        var time=new Date(e.time).toLocaleString('zh-CN');
+        var action=e.action==='deleted'?'deleted':(e.label==='racy'?'racy':'kept');
+        var actionText=e.action==='deleted'?'已删除':(e.label==='racy'?'保留(racy)':'保留(safe)');
+        return '<div class="log-item">'+
+          '<div class="log-main"><div class="log-name">'+escapeHtml(e.name||e.key)+'</div>'+
+          '<div class="log-meta">'+time+' · '+escapeHtml(e.ip||'-')+' · '+(e.provider||'')+' · adult='+(e.scores?.adult||0).toFixed(2)+' racy='+(e.scores?.racy||0).toFixed(2)+'</div></div>'+
+          '<div class="log-actions"><span class="mod-badge '+action+'">'+actionText+'</span></div>'+
+        '</div>';
+      }).join('');
+    }
+
+    async function clearModerationLogs(){
+      if(!confirm('确认清空所有审核日志？'))return;
+      var r=await api('/api/moderation/logs',{method:'DELETE'});
+      if(r&&r.ok)loadModerationLogs();
     }
 
     loadFiles();

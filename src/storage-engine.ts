@@ -37,9 +37,17 @@ export interface MultipartUpload {
 
 // ── 存储引擎接口 ─────────────────────────────
 
+export interface GetResult {
+  text(): Promise<string>;
+  arrayBuffer(): Promise<ArrayBuffer>;
+  body?: ReadableStream;
+  size?: number;
+  httpMetadata?: { contentType?: string; contentLanguage?: string; contentDisposition?: string; contentEncoding?: string; cacheControl?: string };
+}
+
 export interface StorageEngine {
   list(prefix: string, options?: ListOptions): Promise<ListResult>;
-  get(key: string): Promise<{ text(): Promise<string>; arrayBuffer(): Promise<ArrayBuffer> } | null>;
+  get(key: string): Promise<GetResult | null>;
   head(key: string): Promise<HeadResult | null>;
   put(key: string, data: ArrayBuffer | string, options?: { contentType?: string; customMetadata?: Record<string, string> }): Promise<void>;
   delete(key: string | string[]): Promise<void>;
@@ -71,12 +79,15 @@ class R2StorageEngine implements StorageEngine {
     };
   }
 
-  async get(key: string) {
+  async get(key: string): Promise<GetResult | null> {
     const obj = await this.bucket.get(key);
     if (!obj) return null;
     return {
       text: () => obj.text(),
       arrayBuffer: () => obj.arrayBuffer(),
+      body: obj.body,
+      size: obj.size,
+      httpMetadata: obj.httpMetadata,
     };
   }
 
@@ -257,7 +268,7 @@ class S3StorageEngine implements StorageEngine {
     };
   }
 
-  async get(key: string) {
+  async get(key: string): Promise<GetResult | null> {
     const { host, url, path } = this.buildUrl(key);
     const headers: Record<string, string> = {
       'Host': host,
@@ -273,6 +284,14 @@ class S3StorageEngine implements StorageEngine {
     return {
       text: () => Promise.resolve(new TextDecoder().decode(buf)),
       arrayBuffer: () => Promise.resolve(buf),
+      size: buf.byteLength,
+      httpMetadata: {
+        contentType: res.headers.get('content-type') || undefined,
+        contentLanguage: res.headers.get('content-language') || undefined,
+        contentDisposition: res.headers.get('content-disposition') || undefined,
+        contentEncoding: res.headers.get('content-encoding') || undefined,
+        cacheControl: res.headers.get('cache-control') || undefined,
+      },
     };
   }
 

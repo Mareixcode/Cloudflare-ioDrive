@@ -5,21 +5,21 @@ import { parseUA } from './ua-parser';
 import { verifyTurnstile } from './turnstile';
 import { getAllS3ConfigsAsync, detectPathStyle } from './storage';
 import { createStorageEngine } from './storage-engine';
+import { createMetadataStore } from './metadata-store';
+import { incrementShareDownload } from './share';
 
 export const downloadRoutes = new Hono<{ Bindings: Env }>();
 
 // ── Download logs (MUST be before /url/:key to avoid wildcard catch) ──
 downloadRoutes.get('/logs', jwtAuth, async (c) => {
-  const engine = await createStorageEngine(c.env);
-  const listed = await engine.list('_dl_logs/', { limit: 500 });
+  const meta = createMetadataStore(c.env);
+  const { keys } = await meta.list('_dl_logs/', { limit: 500 });
   const logs: any[] = [];
-  for (const obj of listed.objects) {
+  for (const key of keys) {
     try {
-      const data = await engine.get(obj.key);
-      if (data) {
-        const entry = JSON.parse(await data.text());
-        entry.logKey = obj.key;
-        logs.push(entry);
+      const entry = await meta.get<DownloadLogEntry>(key);
+      if (entry) {
+        logs.push({ ...entry, logKey: key + '.json' });
       }
     } catch {}
   }
@@ -29,29 +29,30 @@ downloadRoutes.get('/logs', jwtAuth, async (c) => {
 
 // ── Clear all download logs (JWT) ──
 downloadRoutes.delete('/logs', jwtAuth, async (c) => {
-  const engine = await createStorageEngine(c.env);
+  const meta = createMetadataStore(c.env);
   let deleted = 0;
   let cursor: string | undefined;
   do {
-    const listed = await engine.list('_dl_logs/', { limit: 1000, cursor });
-    const keys = listed.objects.map((o) => o.key);
+    const { keys, cursor: nextCursor } = await meta.list('_dl_logs/', { limit: 1000, cursor });
     if (keys.length > 0) {
-      await engine.delete(keys);
+      await meta.delete(keys);
       deleted += keys.length;
     }
-    cursor = listed.truncated ? listed.cursor : undefined;
+    cursor = nextCursor;
   } while (cursor);
   return c.json({ ok: true, deleted });
 });
 
 // ── Delete single download log (JWT) ──
 downloadRoutes.delete('/logs/:logKey{.+}', jwtAuth, async (c) => {
-  const engine = await createStorageEngine(c.env);
+  const meta = createMetadataStore(c.env);
   const logKey = c.req.param('logKey');
-  if (!logKey.startsWith('_dl_logs/')) {
+  let key = logKey;
+  if (key.endsWith('.json')) key = key.slice(0, -5);
+  if (!key.startsWith('_dl_logs/')) {
     return c.json({ error: 'invalid log key' }, 400);
   }
-  await engine.delete(logKey);
+  await meta.delete(key);
   return c.json({ ok: true });
 });
 
@@ -66,6 +67,7 @@ downloadRoutes.get('/url/:key{.+}', jwtAuth, async (c) => {
 // ── Dashboard: presigned URL with tracking (JWT) ──
 downloadRoutes.get('/presign/:key{.+}', jwtAuth, async (c) => {
   const engine = await createStorageEngine(c.env);
+  const meta = createMetadataStore(c.env);
   const key = c.req.param('key');
   const head = await engine.head(key);
   if (!head) return c.json({ error: '文件不存在' }, 404);
@@ -122,15 +124,16 @@ downloadRoutes.get('/presign/:key{.+}', jwtAuth, async (c) => {
     deviceType: parsed.deviceType,
   };
   const logId = 'direct_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-  const logKey = '_dl_logs/' + logId + '.json';
-  await engine.put(logKey, JSON.stringify(logEntry), { contentType: 'application/json' });
+  const logKey = '_dl_logs/' + logId;
+  await meta.put(logKey, logEntry);
 
-  return c.json({ url: presignedUrl, logKey, name, size: head.size });
+  return c.json({ url: presignedUrl, logKey: logKey + '.json', name, size: head.size });
 });
 
 // ── Share: Turnstile verified → presigned URLs ──
 downloadRoutes.post('/token', async (c) => {
   const engine = await createStorageEngine(c.env);
+  const meta = createMetadataStore(c.env);
   const body = await c.req.json<{ shareToken: string; turnstile: string }>();
   const { shareToken, turnstile } = body;
 
@@ -141,12 +144,8 @@ downloadRoutes.post('/token', async (c) => {
     return c.json({ error: '人机验证失败' }, 403);
   }
 
-  const shareData = await engine.get('_shares/' + shareToken + '.json');
-  if (!shareData) return c.json({ error: '分享链接不存在' }, 404);
-
-  const record = JSON.parse(await shareData.text());
-  record.downloads = (record.downloads || 0) + 1;
-  await engine.put('_shares/' + shareToken + '.json', JSON.stringify(record), { contentType: 'application/json' });
+  const record = await incrementShareDownload(meta, shareToken);
+  if (!record) return c.json({ error: '分享链接不存在' }, 404);
 
   const head = await engine.head(record.key);
   if (!head) return c.json({ error: '文件不存在' }, 404);
@@ -213,31 +212,32 @@ downloadRoutes.post('/token', async (c) => {
     deviceType: parsed.deviceType,
   };
   const logId = shareToken + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-  const logKey = '_dl_logs/' + logId + '.json';
-  await engine.put(logKey, JSON.stringify(logEntry), { contentType: 'application/json' });
+  const logKey = '_dl_logs/' + logId;
+  await meta.put(logKey, logEntry);
 
   const s3Url = s3Urls.length > 0 ? s3Urls[0].url : null;
-  return c.json({ r2Url, s3Url, s3Urls, logKey, name: record.name, size: head.size });
+  return c.json({ r2Url, s3Url, s3Urls, logKey: logKey + '.json', name: record.name, size: head.size });
 });
 
 // ── Beacon: update download completion status ──
 downloadRoutes.post('/beacon', async (c) => {
-  const engine = await createStorageEngine(c.env);
+  const meta = createMetadataStore(c.env);
   const { logKey, event } = await c.req.json<{ logKey: string; event: string }>();
   if (!logKey || !event) return c.json({ error: 'missing params' }, 400);
 
   // 校验 logKey 必须以 _dl_logs/ 开头，防止读写任意对象
-  if (!logKey.startsWith('_dl_logs/')) {
+  let key = logKey;
+  if (key.endsWith('.json')) key = key.slice(0, -5);
+  if (!key.startsWith('_dl_logs/')) {
     return c.json({ error: 'invalid log key' }, 400);
   }
 
   if (event === 'complete') {
     try {
-      const existing = await engine.get(logKey);
-      if (existing) {
-        const entry = JSON.parse(await existing.text());
+      const entry = await meta.get<DownloadLogEntry>(key);
+      if (entry) {
         entry.completed = true;
-        await engine.put(logKey, JSON.stringify(entry), { contentType: 'application/json' });
+        await meta.put(key, entry);
       }
     } catch {}
   }

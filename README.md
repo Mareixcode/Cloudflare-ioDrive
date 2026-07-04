@@ -268,6 +268,50 @@ chmod +x setup.sh
 - **Curl / Aria2 命令**：分享页面自动生成命令行下载指令
 - **可配置管理员账号**：通过控制台修改管理员用户名和密码，密码 SHA-256 加密存储
 
+### 🗄️ D1 元数据库
+
+- **可切换后端**：在 `wrangler.toml` 配置 `META_DB` binding 即启用 D1（SQLite）模式；未配置时自动回退到 R2 JSON 文件模式
+- **单表 key-value 设计**：参考 ImgBed 的简化模式，所有元数据（分享、下载日志、上传日志、上传链接、配置、多段上传会话、审核日志）统一存到 `kv` 表
+- **自动建表**：首次请求触发 `d1.exec(initSql)` 创建表结构与索引（幂等）
+- **一次性迁移**：调用 `POST /api/migration/r2-to-d1` 把 R2 中的 `_config/`、`_shares/`、`_dl_logs/`、`_ul_logs/`、`_upload_keys/`、`_multipart/`、`_moderation_logs/` 批量写入 D1
+- **降级安全**：D1 故障被 try/catch 捕获并 fallback 到 R2 JSON
+
+### 🔌 WebDAV 网盘挂载
+
+- **完整读写**：支持 `OPTIONS / PROPFIND / GET / PUT / DELETE / MKCOL / MOVE / COPY / PROPPATCH` 九个方法
+- **HTTP Basic 鉴权**：通过 `WEBDAV_USER` / `WEBDAV_PASS`（用 `wrangler secret put` 注入）配置
+- **挂载方式**：
+  - Windows 资源管理器：`net use Z: https://<host>/dav /user:user pass`
+  - macOS Finder：「前往」→「连接服务器」→ `https://<host>/dav`
+  - RaiDrive / Cyberduck / Mountain Duck：填入 URL + 用户名密码
+- **复用现有逻辑**：WebDAV 内部用短期 JWT（5 分钟）调 `POST /api/upload/single`、`DELETE /api/files/{key}` 等 API，自动复用上传同步 + 日志 + 审核
+- **路径安全**：拒绝 `_` 前缀（内部文件）、`..` 反向穿越、反斜杠、URL 双重编码
+- **demo 域拦截**：`demo.iodevo.com` 调 WebDAV 一律 403
+
+### 🎲 随机图片 API
+
+- **端点签名**：`GET /random?dir=uploads/photos&content=image&orientation=auto&type=img&form=text`
+- **三种返回形式**：
+  - `type=img` → 302 跳转到图片
+  - `type=url` → JSON 完整 URL
+  - `form=text` → 纯文本 URL
+  - 默认 → JSON 相对路径
+- **Workers Cache 缓存**：目录索引按 `dir` 缓存 24h，重复访问毫秒级返回
+- **白名单控制**：`RANDOM_ALLOWED_DIRS` CSV 配置允许的目录，留空 = 不限制
+- **方向过滤**：`orientation=auto` 时按 User-Agent 推断（mobile → portrait，desktop → landscape）
+
+### 🛡️ 内容审核
+
+- **默认关闭**：不配 `_config/moderation` 时完全跳过，对性能零影响
+- **写后审（异步）**：上传成功 → `c.executionCtx.waitUntil(moderateAndCleanup)` → 不阻塞响应
+- **多 Provider**：
+  - `moderatecontent`：调用 `https://api.moderatecontent.com/moderate/`
+  - `nsfwjs`：调用自部署的 NSFWJS 实例
+- **8 秒超时**：`AbortSignal.timeout(8000)` 防止 API 挂起
+- **命中规则**：adult（默认阈值 0.9）→ 物理删除文件 + 写审核日志；racy（0.7）→ 仅记录
+- **管理员 UI**：在 dashboard 侧边栏「审核日志」标签查看 / 清空 / 测试 Provider
+- **豁免规则**：超过 `maxSize`（默认 20MB）或 contentType 不在白名单（`image/jpeg/png/webp/gif`）→ 跳过
+
 ---
 
 ## 🏗️ 架构设计
@@ -569,6 +613,22 @@ npm run deploy
 | `S3_ACCESS_KEY` | S3 Access Key（向后兼容） | - |
 | `S3_SECRET_KEY` | S3 Secret Key（向后兼容） | - |
 | `PUBLIC_UPLOAD_PATH` | 公共上传默认路径 | `uploads/public/` |
+| `WEBDAV_ENABLED` | WebDAV 总开关（`true` / `false`） | `false` |
+| `WEBDAV_USER` | WebDAV HTTP Basic 用户名（建议用 `wrangler secret put` 注入） | - |
+| `WEBDAV_PASS` | WebDAV HTTP Basic 密码（建议用 `wrangler secret put` 注入） | - |
+| `RANDOM_ENABLED` | 随机图片 API 总开关 | `false` |
+| `RANDOM_ALLOWED_DIRS` | 随机 API 允许的目录 CSV（留空 = 不限制） | 空 |
+
+#### D1 元数据库（可选，启用后元数据改用 SQLite 存储）
+
+```toml
+[[d1_databases]]
+binding = "META_DB"
+database_name = "iodrive-meta"
+database_id = "<your-d1-uuid>"
+```
+
+启用 D1 后调 `POST /api/migration/r2-to-d1`（JWT 鉴权）把现有 R2 JSON 一次性迁移过来。
 
 ### 路由配置
 
@@ -608,6 +668,8 @@ drive/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml                    # GitHub Actions CI/CD 配置
+├── database/
+│   └── init.sql                      # D1 Schema（启用 D1 时使用）
 ├── docs/
 │   ├── README_EN.md                  # 英文文档
 │   ├── README_JA.md                  # 日文文档
@@ -623,7 +685,7 @@ drive/
 │           ├── share-link-1.png      # 分享链接截图-桌面端
 │           └── share-link-2.png      # 分享链接截图-命令下载
 ├── src/
-│   ├── index.ts                      # 🚀 应用入口：路由注册、页面路由、SEO
+│   ├── index.ts                      # 🚀 应用入口：路由注册、页面路由、SEO、D1 自动建表
 │   ├── auth.ts                       # 🔐 JWT 认证：登录、JWT 签发与验证中间件、频率限制
 │   ├── files.ts                      # 📁 文件 CRUD：列表、创建文件夹、删除、批量删除、移动
 │   ├── upload.ts                     # 📤 仪表盘上传：单文件、分片上传（init/part/complete/abort）
@@ -634,16 +696,26 @@ drive/
 │   ├── download.ts                   # ⬇️ 下载服务：预签名 URL 生成、下载日志、beacon 追踪
 │   ├── share.ts                      # 🔗 分享服务：创建、列表、删除、批量分享、公开信息查询
 │   ├── s3-upload.ts                  # ☁️ S3 上传：AWS Signature V4 实现（单文件 + 分片）
+│   ├── storage-engine.ts             # 🧰 存储引擎抽象：R2 / S3 统一接口
+│   ├── storage-config.ts             # 🗄 多后端存储配置管理
+│   ├── metadata-store.ts             # 🗄 元数据抽象层：R2 JSON / D1 双实现自动切换
+│   ├── moderation.ts                 # 🛡 内容审核 Provider 接口 + ModerateContent / NSFWJS 实现
+│   ├── moderation-admin.ts           # 🛡 审核配置 / 日志 / 测试 API
+│   ├── random.ts                     # 🎲 随机图片 API（带 Workers Cache 缓存）
+│   ├── webdav.ts                     # 🔌 WebDAV 服务（完整 RW + HTTP Basic 鉴权）
+│   ├── webdav-xml.ts                 # 🔌 WebDAV PROPFIND XML 生成
 │   ├── turnstile.ts                  # 🛡 Turnstile 验证：服务端 token 校验
 │   ├── ua-parser.ts                  # 🔍 UA 解析：浏览器、操作系统、设备类型识别
-│   ├── types.ts                      # 📐 类型定义：Env、JwtPayload、FileMeta、ShareRecord 等
+│   ├── types.ts                      # 📐 类型定义：Env、JwtPayload、FileMeta、ShareRecord、ModerationConfig 等
 │   └── html/
-│       ├── dashboard.ts              # 管理后台 SPA（文件/下载/上传/分享/上传链接五个视图）
+│       ├── dashboard.ts              # 管理后台 SPA（含审核日志共六个视图）
 │       ├── login.ts                  # 登录页面
 │       ├── share.ts                  # 公开分享下载页面
 │       ├── upload-key.ts             # 上传链接页面（限时上传）
 │       ├── public-upload.ts          # 公共上传页面（无需登录）
 │       └── demo.ts                   # 演示站 Landing Page
+├── scripts/
+│   └── migrate-to-d1.ts              # 一次性 R2→D1 元数据迁移脚本
 ├── wrangler.toml                     # 生产环境部署配置
 ├── wrangler.toml.example             # 配置文件模板
 ├── wrangler.demo.toml                # 演示环境部署配置
@@ -1026,6 +1098,129 @@ drive/
 #### `GET /api/upload-keys/validate/:id`（公开）
 
 验证上传链接是否有效。
+
+---
+
+### D1 迁移 API
+
+#### `POST /api/migration/r2-to-d1`（需要 JWT）
+
+将 R2 中以 `_config/` / `_shares/` / `_dl_logs/` / `_ul_logs/` / `_upload_keys/` / `_multipart/` / `_moderation_logs/` 为前缀的 JSON 文件批量读取并写入 D1。要求已配置 `META_DB` binding。幂等。
+
+**响应：**
+
+```json
+{
+  "ok": true,
+  "stats": { "_config/": 1, "_shares/": 5, "_dl_logs/": 23 },
+  "errors": []
+}
+```
+
+### 随机图片 API（公开）
+
+#### `GET /random`
+
+**Query 参数：**
+
+| 参数 | 说明 | 默认 |
+|------|------|------|
+| `dir` | 目录（必须在 `RANDOM_ALLOWED_DIRS` 白名单中） | 空（根目录） |
+| `content` | contentType 包含过滤 | `image` |
+| `orientation` | `all` / `auto` / `landscape` / `portrait` / `square` | `all` |
+| `type` | `img`（302 跳转） / `url`（JSON 完整 URL） / 空（JSON 相对路径） | 空 |
+| `form` | `text`（纯文本 URL） | 空 |
+
+**示例：**
+
+```bash
+# 默认 JSON
+curl https://drive.example.com/random?dir=uploads/photos
+
+# 纯文本 URL
+curl https://drive.example.com/random?dir=uploads/photos&form=text
+
+# 302 跳转到图片
+curl -L https://drive.example.com/random?dir=uploads/photos&type=img
+```
+
+#### `POST /api/random/refresh`（需要 JWT）
+
+清空 Workers Cache 中指定目录的随机索引缓存。
+
+```json
+{ "dirs": ["uploads/photos", "uploads/wallpapers"] }
+```
+
+### 内容审核 API（需要 JWT）
+
+#### `GET /api/moderation/config`
+
+读取审核配置（apiKey 返回脱敏值）。
+
+#### `PUT /api/moderation/config`
+
+写入审核配置。
+
+```json
+{
+  "enabled": true,
+  "provider": "moderatecontent",
+  "apiKey": "your-key",
+  "thresholds": { "adult": 0.9, "racy": 0.7 },
+  "fileTypes": ["image/jpeg", "image/png", "image/webp", "image/gif"],
+  "maxSize": 20971520
+}
+```
+
+#### `POST /api/moderation/test`
+
+测试 Provider（不影响真实数据）。
+
+```json
+{ "url": "https://example.com/test.jpg" }
+```
+
+#### `GET /api/moderation/logs`
+
+读取审核日志列表（按时间倒序，最多 500 条）。
+
+#### `DELETE /api/moderation/logs`
+
+清空所有审核日志。
+
+#### `DELETE /api/moderation/logs/:id`
+
+删除单条审核日志。
+
+### WebDAV
+
+`/dav/*` 路径（无需 JWT，使用 HTTP Basic）：
+
+| 方法 | 用途 |
+|------|------|
+| `OPTIONS` | 返回 `DAV: 1, 2` 与 Allow 头 |
+| `PROPFIND` | 列出目录 / 文件元数据，207 Multi-Status XML |
+| `GET` | 文件流式下载 / 目录 HTML 列表 |
+| `PUT` | 上传文件（复用 `/api/upload/single`，自动同步 + 日志） |
+| `DELETE` | 删除（复用 `/api/files/{key}`） |
+| `MKCOL` | 创建目录（`/` 结尾） |
+| `MOVE` | 移动 / 重命名（复用 `/api/files/move`） |
+| `COPY` | 复制 |
+| `PROPPATCH` | 200 OK no-op |
+
+**挂载示例：**
+
+```bash
+# Windows 资源管理器
+net use Z: https://drive.example.com/dav /user:webdav_user webdav_pass
+
+# macOS Finder
+# 「前往」→「连接服务器」→ https://drive.example.com/dav
+
+# Linux (davfs2)
+mount -t davfs https://drive.example.com/dav /mnt/iodrive
+```
 
 ---
 

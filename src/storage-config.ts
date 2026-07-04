@@ -4,14 +4,15 @@ import type { Env, StorageBackendConfig } from './types';
 import { jwtAuth } from './auth';
 import { PROVIDERS, detectPathStyle } from './storage';
 import type { S3Config } from './s3-upload';
+import { createMetadataStore, type MetadataStore } from './metadata-store';
 
 export const storageConfigRoutes = new Hono<{ Bindings: Env }>();
 
 // 所有存储配置路由需要 JWT 认证
 storageConfigRoutes.use('*', jwtAuth);
 
-// 配置文件在 R2 中的存储路径
-const CONFIG_KEY = '_config/storage.json';
+// 配置文件 key
+const CONFIG_KEY = '_config/storage';
 
 // ── 存储配置数据结构 ────────────────────────
 
@@ -21,23 +22,14 @@ interface StorageConfigData {
   updatedAt: string;
 }
 
-async function loadConfig(drive: R2Bucket | undefined): Promise<StorageConfigData> {
-  if (!drive) return { backends: [], credentials: {}, updatedAt: '' };
-  const obj = await drive.get(CONFIG_KEY);
-  if (!obj) return { backends: [], credentials: {}, updatedAt: '' };
-  try {
-    return JSON.parse(await obj.text());
-  } catch {
-    return { backends: [], credentials: {}, updatedAt: '' };
-  }
+async function loadConfig(meta: MetadataStore): Promise<StorageConfigData> {
+  return (await meta.get<StorageConfigData>(CONFIG_KEY))
+    || { backends: [], credentials: {}, updatedAt: '' };
 }
 
-async function saveConfig(drive: R2Bucket | undefined, data: StorageConfigData): Promise<void> {
-  if (!drive) throw new Error('存储未配置：需要 R2 binding 才能保存配置');
+async function saveConfig(meta: MetadataStore, data: StorageConfigData): Promise<void> {
   data.updatedAt = new Date().toISOString();
-  await drive.put(CONFIG_KEY, JSON.stringify(data), {
-    httpMetadata: { contentType: 'application/json' },
-  });
+  await meta.put(CONFIG_KEY, data);
 }
 
 // ── GET /api/storage/providers — 获取支持的提供商预设 ──
@@ -49,7 +41,8 @@ storageConfigRoutes.get('/providers', (c) => {
 // ── GET /api/storage/backends — 获取所有已配置的后端 ──
 
 storageConfigRoutes.get('/backends', async (c) => {
-  const data = await loadConfig(c.env.DRIVE);
+  const meta = createMetadataStore(c.env);
+  const data = await loadConfig(meta);
 
   // 返回后端列表（隐藏密钥，只显示是否已配置）
   const backends = data.backends.map(b => ({
@@ -68,6 +61,7 @@ storageConfigRoutes.get('/backends', async (c) => {
 // ── POST /api/storage/backends — 添加新后端 ──
 
 storageConfigRoutes.post('/backends', async (c) => {
+  const meta = createMetadataStore(c.env);
   const body = await c.req.json<{
     name: string;
     provider: string;
@@ -86,7 +80,7 @@ storageConfigRoutes.post('/backends', async (c) => {
     return c.json({ error: '缺少必填字段' }, 400);
   }
 
-  const data = await loadConfig(c.env.DRIVE);
+  const data = await loadConfig(meta);
 
   // 检查名称是否已存在
   if (data.backends.some(b => b.name === name)) {
@@ -117,13 +111,14 @@ storageConfigRoutes.post('/backends', async (c) => {
     }
   }
 
-  await saveConfig(c.env.DRIVE, data);
+  await saveConfig(meta, data);
   return c.json({ ok: true, backend });
 });
 
 // ── PUT /api/storage/backends/:name — 更新后端 ──
 
 storageConfigRoutes.put('/backends/:name', async (c) => {
+  const meta = createMetadataStore(c.env);
   const name = c.req.param('name');
   const body = await c.req.json<{
     provider?: string;
@@ -137,7 +132,7 @@ storageConfigRoutes.put('/backends/:name', async (c) => {
     secretKey?: string;
   }>();
 
-  const data = await loadConfig(c.env.DRIVE);
+  const data = await loadConfig(meta);
   const idx = data.backends.findIndex(b => b.name === name);
   if (idx === -1) return c.json({ error: `后端「${name}」不存在` }, 404);
 
@@ -174,15 +169,16 @@ storageConfigRoutes.put('/backends/:name', async (c) => {
     backend.pathStyle = detectPathStyle(backend.endpoint, backend.provider);
   }
 
-  await saveConfig(c.env.DRIVE, data);
+  await saveConfig(meta, data);
   return c.json({ ok: true, backend });
 });
 
 // ── DELETE /api/storage/backends/:name — 删除后端 ──
 
 storageConfigRoutes.delete('/backends/:name', async (c) => {
+  const meta = createMetadataStore(c.env);
   const name = c.req.param('name');
-  const data = await loadConfig(c.env.DRIVE);
+  const data = await loadConfig(meta);
 
   const idx = data.backends.findIndex(b => b.name === name);
   if (idx === -1) return c.json({ error: `后端「${name}」不存在` }, 404);
@@ -190,7 +186,7 @@ storageConfigRoutes.delete('/backends/:name', async (c) => {
   data.backends.splice(idx, 1);
   delete data.credentials[name];
 
-  await saveConfig(c.env.DRIVE, data);
+  await saveConfig(meta, data);
   return c.json({ ok: true });
 });
 
@@ -280,7 +276,8 @@ storageConfigRoutes.post('/status', async (c) => {
     }
 
     // 检测 S3 后端
-    const data = await loadConfig(c.env.DRIVE);
+    const meta = createMetadataStore(c.env);
+    const data = await loadConfig(meta);
     const backend = data.backends.find(b => b.name === name);
     if (!backend) return c.json({ ok: false, error: `后端「${name}」不存在`, responseTime: 0 });
 
