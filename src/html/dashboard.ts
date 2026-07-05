@@ -205,7 +205,8 @@ export function renderDashboard(isDemo: boolean = false): string {
       .side{position:fixed;left:0;top:0;bottom:0;transform:translateX(-100%);box-shadow:4px 0 20px rgba(0,0,0,0.15);visibility:hidden;transition:background .35s,border .35s,transform .3s cubic-bezier(.34,1.56,.64,1),visibility .3s}
       .side.open{transform:translateX(0);visibility:visible}
       [data-glass="true"] .side{backdrop-filter:none !important;-webkit-backdrop-filter:none !important}
-      [data-glass="true"] .side.open{backdrop-filter:blur(24px) saturate(1.5) url(#liquid-glass-edge) !important;-webkit-backdrop-filter:blur(24px) saturate(1.5) url(#liquid-glass-edge) !important}
+      [data-glass="true"] .side.open{backdrop-filter:blur(24px) saturate(1.5) !important;-webkit-backdrop-filter:blur(24px) saturate(1.5) !important}
+      [data-glass="true"] .modal, [data-glass="true"] .ac-card, [data-glass="true"] .storage-card, [data-glass="true"] .public-upload-card, [data-glass="true"] .fab, [data-glass="true"] .up-panel, [data-glass="true"] #storage-modal>div { backdrop-filter: blur(24px) saturate(1.5); -webkit-backdrop-filter: blur(24px) saturate(1.5); }
       .side-close{display:flex}
       .hamburger{display:flex}
       .topbar{padding:10px 16px;gap:8px}
