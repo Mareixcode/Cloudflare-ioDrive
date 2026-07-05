@@ -309,8 +309,8 @@ export function renderDashboard(isDemo: boolean = false): string {
        Supports both Light & Dark modes!
        ═══════════════════════════════════════════════ */
     :root {
-      /* Light Glass Tokens */
-      --g-body-bg: radial-gradient(circle at 10% 10%, #ffebf0 0%, #e0f0ff 40%, #f4e8ff 80%, #ffffff 100%);
+      /* Light Glass Tokens (Starlight / Warm Silver - No Blue/Purple) */
+      --g-body-bg: radial-gradient(circle at 20% 20%, #ffffff 0%, #f7f5f0 35%, #ebe7de 70%, #dcd8cc 100%);
       --g-surf-side: rgba(255,255,255,0.4);
       --g-surf-top: rgba(255,255,255,0.5);
       --g-surf-card: rgba(255,255,255,0.3);
@@ -343,8 +343,8 @@ export function renderDashboard(isDemo: boolean = false): string {
     }
 
     [data-theme="dark"] {
-      /* Dark Glass Tokens */
-      --g-body-bg: radial-gradient(circle at 10% 10%, #1c1c1e 0%, #2c2c2e 40%, #1a1a2e 80%, #000 100%);
+      /* Dark Glass Tokens (Space Black / Titanium - No Blue/Purple) */
+      --g-body-bg: radial-gradient(circle at 20% 20%, #2c2c2e 0%, #1c1c1e 35%, #111111 70%, #000000 100%);
       --g-surf-side: rgba(255,255,255,0.03);
       --g-surf-top: rgba(255,255,255,0.02);
       --g-surf-card: rgba(255,255,255,0.02);
