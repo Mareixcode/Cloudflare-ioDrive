@@ -115,7 +115,7 @@ export interface UploadLogEntry {
   ip: string;
   country: string;
   ua: string;
-  source: 'dashboard' | 'public' | 'upload-key';
+  source: 'dashboard' | 'public' | 'upload-key' | 'picgo';
   uploadKeyId?: string;
   uploadKeyLabel?: string;
   referer?: string;
@@ -166,5 +166,5 @@ export interface ModerationLogEntry {
   scores: Record<string, number>;
   reason: 'adult' | 'racy' | 'threshold' | 'safe';
   action: 'kept' | 'deleted';
-  source: 'dashboard' | 'public' | 'upload-key' | 'webdav';
+  source: 'dashboard' | 'public' | 'upload-key' | 'webdav' | 'picgo';
 }
