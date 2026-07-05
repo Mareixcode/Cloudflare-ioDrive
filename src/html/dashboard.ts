@@ -306,134 +306,202 @@ export function renderDashboard(isDemo: boolean = false): string {
 
     /* ═══════════════════════════════════════════════
        LIQUID GLASS THEME — iOS 26 Style
-       Uses SVG feDisplacementMap for edge refraction
+       Supports both Light & Dark modes!
        ═══════════════════════════════════════════════ */
+    :root {
+      /* Light Glass Tokens */
+      --g-body-bg: radial-gradient(circle at 10% 10%, #ffebf0 0%, #e0f0ff 40%, #f4e8ff 80%, #ffffff 100%);
+      --g-surf-side: rgba(255,255,255,0.4);
+      --g-surf-top: rgba(255,255,255,0.5);
+      --g-surf-card: rgba(255,255,255,0.3);
+      --g-surf-card-hover: rgba(255,255,255,0.5);
+      --g-surf-modal: rgba(255,255,255,0.5);
+      --g-border: rgba(255,255,255,0.6);
+      --g-border-hover: rgba(255,255,255,0.8);
+      --g-text: #111;
+      --g-sub: rgba(0,0,0,0.6);
+      
+      --g-rim-strong: inset 0 0 0 1px rgba(255,255,255,0.9);
+      --g-rim-light: inset 0 0 0 1px rgba(255,255,255,0.6);
+      --g-rim-inner: inset 0 10px 20px rgba(255,255,255,0.4);
+      --g-rim-bot: inset 0 -12px 24px rgba(0,0,0,0.05);
+      --g-shadow-drop: 0 12px 32px rgba(0,0,0,0.1);
+      
+      --g-nav: rgba(0,0,0,0.5);
+      --g-nav-hover: rgba(0,0,0,0.8);
+      --g-nav-on-bg: rgba(255,255,255,0.6);
+      --g-nav-on-color: #000;
+      
+      --g-input-bg: rgba(255,255,255,0.4);
+      --g-input-border: rgba(255,255,255,0.8);
+      --g-input-ph: rgba(0,0,0,0.4);
+      --g-input-ring: 0 0 0 3px rgba(255,255,255,0.4);
+      
+      --g-btn-p: rgba(0,0,0,0.8);
+      --g-btn-p-hover: rgba(0,0,0,0.9);
+      --g-btn-p-text: #fff;
+    }
+
+    [data-theme="dark"] {
+      /* Dark Glass Tokens */
+      --g-body-bg: radial-gradient(circle at 10% 10%, #1c1c1e 0%, #2c2c2e 40%, #1a1a2e 80%, #000 100%);
+      --g-surf-side: rgba(255,255,255,0.03);
+      --g-surf-top: rgba(255,255,255,0.02);
+      --g-surf-card: rgba(255,255,255,0.02);
+      --g-surf-card-hover: rgba(255,255,255,0.04);
+      --g-surf-modal: rgba(255,255,255,0.03);
+      --g-border: rgba(255,255,255,0.15);
+      --g-border-hover: rgba(255,255,255,0.25);
+      --g-text: #fff;
+      --g-sub: rgba(255,255,255,0.55);
+      
+      --g-rim-strong: inset 0 0 0 1px rgba(255,255,255,0.4);
+      --g-rim-light: inset 0 0 0 1px rgba(255,255,255,0.2);
+      --g-rim-inner: inset 0 10px 20px rgba(255,255,255,0.08);
+      --g-rim-bot: inset 0 -12px 24px rgba(0,0,0,0.2);
+      --g-shadow-drop: 0 12px 32px rgba(0,0,0,0.3);
+      
+      --g-nav: rgba(255,255,255,0.55);
+      --g-nav-hover: rgba(255,255,255,0.9);
+      --g-nav-on-bg: rgba(255,255,255,0.13);
+      --g-nav-on-color: #fff;
+      
+      --g-input-bg: rgba(255,255,255,0.07);
+      --g-input-border: rgba(255,255,255,0.15);
+      --g-input-ph: rgba(255,255,255,0.35);
+      --g-input-ring: 0 0 0 3px rgba(255,255,255,0.15);
+      
+      --g-btn-p: rgba(255,255,255,0.15);
+      --g-btn-p-hover: rgba(255,255,255,0.2);
+      --g-btn-p-text: #fff;
+    }
+
+    [data-glass="true"] { --text: var(--g-text); --sub: var(--g-sub); }
 
     /* ── Background wallpaper ── */
-    [data-theme="glass"] body{background:linear-gradient(135deg,#1c1c1e 0%,#2c2c2e 25%,#252528 50%,#1e1e20 75%,#161618 100%);background-attachment:fixed;min-height:100vh}
-    [data-theme="glass"] body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse at 25% 40%,rgba(255,255,255,0.04) 0%,transparent 55%),radial-gradient(ellipse at 75% 25%,rgba(255,255,255,0.03) 0%,transparent 50%),radial-gradient(ellipse at 50% 80%,rgba(255,255,255,0.02) 0%,transparent 50%);pointer-events:none;z-index:0;animation:glassAmbient 15s ease-in-out infinite alternate}
-    @keyframes glassAmbient{0%{opacity:0.7}50%{opacity:1}100%{opacity:0.6}}
-    [data-theme="glass"] .layout{position:relative;z-index:1}
+    [data-glass="true"] body{background:var(--g-body-bg);background-size:200% 200%;background-attachment:fixed;min-height:100vh;animation:g-bg-pan 20s ease-in-out infinite alternate}
+    @keyframes g-bg-pan{0%{background-position:0% 0%}100%{background-position:100% 100%}}
+    [data-glass="true"] .layout{position:relative;z-index:1}
 
-    /* ── Liquid Glass surface — shared mixin via .lg-surface ── */
-    /* The core: SVG displacement filter applied to edges + blur */
-    [data-theme="glass"] .side,
-    [data-theme="glass"] .modal,
-    [data-theme="glass"] .ac-card,
-    [data-theme="glass"] .storage-card,
-    [data-theme="glass"] .public-upload-card,
-    [data-theme="glass"] .fab,
-    [data-theme="glass"] .up-panel,
-    [data-theme="glass"] #storage-modal>div{
+    /* ── Liquid Glass surface mixin ── */
+    [data-glass="true"] .side,
+    [data-glass="true"] .modal,
+    [data-glass="true"] .ac-card,
+    [data-glass="true"] .storage-card,
+    [data-glass="true"] .public-upload-card,
+    [data-glass="true"] .fab,
+    [data-glass="true"] .up-panel,
+    [data-glass="true"] #storage-modal>div{
       backdrop-filter: blur(24px) saturate(1.5) url(#liquid-glass-edge);
       -webkit-backdrop-filter: blur(24px) saturate(1.5) url(#liquid-glass-edge);
     }
 
     /* ── Glass Sidebar ── */
-    [data-theme="glass"] .side{background:rgba(255,255,255,0.03);border-right:1px solid rgba(255,255,255,0.1);box-shadow:inset -1px 0 0 rgba(255,255,255,0.2),inset 1px 0 0 rgba(255,255,255,0.4),10px 0 30px rgba(0,0,0,0.3)}
-    [data-theme="glass"] .nav{color:rgba(255,255,255,0.55)}
-    [data-theme="glass"] .nav:hover{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.9)}
-    [data-theme="glass"] .nav.on{background:rgba(255,255,255,0.13);color:#fff;border:1px solid rgba(255,255,255,0.18);box-shadow:inset 0 1px 0 rgba(255,255,255,0.2),0 2px 8px rgba(0,0,0,0.1)}
-    [data-theme="glass"] .pill:hover{background:rgba(255,255,255,0.08)}
-    [data-theme="glass"] .side-logo{color:#fff}
+    [data-glass="true"] .side{background:var(--g-surf-side);border-right:1px solid var(--g-border);box-shadow:inset -1px 0 0 var(--g-border),var(--g-shadow-drop)}
+    [data-glass="true"] .nav{color:var(--g-nav)}
+    [data-glass="true"] .nav:hover{background:var(--g-surf-card);color:var(--g-nav-hover)}
+    [data-glass="true"] .nav.on{background:var(--g-nav-on-bg);color:var(--g-nav-on-color);border:1px solid var(--g-border);box-shadow:var(--g-rim-light),0 2px 8px rgba(0,0,0,0.1)}
+    [data-glass="true"] .pill:hover{background:var(--g-surf-card)}
+    [data-glass="true"] .side-logo{color:var(--g-text)}
 
     /* ── Glass Topbar ── */
-    [data-theme="glass"] .topbar{background:rgba(255,255,255,0.02);backdrop-filter:blur(20px) saturate(1.4);-webkit-backdrop-filter:blur(20px) saturate(1.4);border-bottom:1px solid rgba(255,255,255,0.1);box-shadow:inset 0 1px 0 rgba(255,255,255,0.3),inset 0 -1px 0 rgba(255,255,255,0.1),0 4px 20px rgba(0,0,0,0.2)}
-    [data-theme="glass"] .search input{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#fff}
-    [data-theme="glass"] .search input::placeholder{color:rgba(255,255,255,0.35)}
-    [data-theme="glass"] .search input:focus{border-color:rgba(255,255,255,0.35);background:rgba(255,255,255,0.12);box-shadow:0 0 0 3px rgba(255,255,255,0.06)}
-    [data-theme="glass"] .theme-btn,[data-theme="glass"] .icon-btn{border-color:rgba(255,255,255,0.15);color:rgba(255,255,255,0.65)}
-    [data-theme="glass"] .theme-btn:hover,[data-theme="glass"] .icon-btn:hover{background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.25)}
+    [data-glass="true"] .topbar{background:var(--g-surf-top);backdrop-filter:blur(20px) saturate(1.4);-webkit-backdrop-filter:blur(20px) saturate(1.4);border-bottom:1px solid var(--g-border);box-shadow:var(--g-rim-strong),var(--g-rim-bot),var(--g-shadow-drop)}
+    [data-glass="true"] .search input{background:var(--g-input-bg);border:1px solid var(--g-input-border);color:var(--g-text)}
+    [data-glass="true"] .search input::placeholder{color:var(--g-input-ph)}
+    [data-glass="true"] .search input:focus{border-color:var(--g-border-hover);box-shadow:var(--g-input-ring)}
+    [data-glass="true"] .theme-btn,[data-glass="true"] .icon-btn{border-color:var(--g-border);color:var(--g-nav)}
+    [data-glass="true"] .theme-btn:hover,[data-glass="true"] .icon-btn:hover{background:var(--g-surf-card);border-color:var(--g-border-hover)}
 
     /* ── Glass Breadcrumbs & Backend Selector ── */
-    [data-theme="glass"] .breadcrumbs{border-bottom:1px solid rgba(255,255,255,0.08);background:transparent}
-    [data-theme="glass"] .breadcrumbs .bc-item:hover{background:rgba(255,255,255,0.08)}
-    [data-theme="glass"] .backend-selector{border-bottom:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.02)}
-    [data-theme="glass"] .backend-selector select{background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.15);color:#fff}
+    [data-glass="true"] .breadcrumbs{border-bottom:1px solid var(--g-border);background:transparent}
+    [data-glass="true"] .breadcrumbs .bc-item:hover{background:var(--g-surf-card)}
+    [data-glass="true"] .backend-selector{border-bottom:1px solid var(--g-border);background:var(--g-surf-card)}
+    [data-glass="true"] .backend-selector select{background:var(--g-input-bg);border-color:var(--g-border);color:var(--g-text)}
 
     /* ── Glass File List ── */
-    [data-theme="glass"] .list-head{border-bottom:1px solid rgba(255,255,255,0.08)}
-    [data-theme="glass"] .row{border-bottom:1px solid rgba(255,255,255,0.04)}
-    [data-theme="glass"] .row:hover{background:rgba(255,255,255,0.06);box-shadow:inset 0 1px 0 rgba(255,255,255,0.12),0 2px 8px rgba(0,0,0,0.08);border-radius:10px;border-bottom-color:transparent}
-    [data-theme="glass"] .sel-toolbar{background:rgba(255,255,255,0.05);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid rgba(255,255,255,0.12)}
+    [data-glass="true"] .list-head{border-bottom:1px solid var(--g-border)}
+    [data-glass="true"] .row{border-bottom:1px solid var(--g-border)}
+    [data-glass="true"] .row:hover{background:var(--g-surf-card);box-shadow:var(--g-rim-light),0 2px 8px rgba(0,0,0,0.08);border-radius:10px;border-bottom-color:transparent}
+    [data-glass="true"] .sel-toolbar{background:var(--g-surf-side);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--g-border)}
 
-    /* ── Glass Buttons — with specular edge highlight ── */
-    [data-theme="glass"] .btn-p{background:rgba(255,255,255,0.1);color:#fff;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.15);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.3),inset 0 4px 10px rgba(255,255,255,0.15),0 4px 12px rgba(0,0,0,0.2);border-radius:20px;transition:all .3s cubic-bezier(.34,1.56,.64,1)}
-    [data-theme="glass"] .btn-p:hover{background:rgba(255,255,255,0.15);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.5),inset 0 4px 12px rgba(255,255,255,0.2),0 6px 16px rgba(0,0,0,0.3);transform:translateY(-2px) scale(1.02)}
-    [data-theme="glass"] .btn-s{background:rgba(255,255,255,0.05);color:rgba(255,255,255,0.8);border:1px solid rgba(255,255,255,0.12)}
-    [data-theme="glass"] .btn-s:hover{background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.2)}
+    /* ── Glass Buttons ── */
+    [data-glass="true"] .btn-p{background:var(--g-btn-p);color:var(--g-btn-p-text);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--g-border);box-shadow:var(--g-rim-strong),var(--g-rim-inner),var(--g-shadow-drop);border-radius:20px;transition:all .3s cubic-bezier(.34,1.56,.64,1)}
+    [data-glass="true"] .btn-p:hover{background:var(--g-btn-p-hover);box-shadow:var(--g-rim-strong),var(--g-rim-inner),var(--g-shadow-drop);transform:translateY(-2px) scale(1.02)}
+    [data-glass="true"] .btn-s{background:var(--g-surf-card);color:var(--g-text);border:1px solid var(--g-border)}
+    [data-glass="true"] .btn-s:hover{background:var(--g-surf-card-hover);border-color:var(--g-border-hover)}
 
-    /* ── Glass FAB — liquid bubble ── */
-    [data-theme="glass"] .fab{background:rgba(255,255,255,0.05);color:#fff;border:1px solid rgba(255,255,255,0.15);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.4),inset 0 8px 16px rgba(255,255,255,0.15),inset 0 -8px 16px rgba(0,0,0,0.2),0 12px 32px rgba(0,0,0,0.4)}
-    [data-theme="glass"] .fab:hover{background:rgba(255,255,255,0.1);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.6),inset 0 8px 16px rgba(255,255,255,0.25),inset 0 -8px 16px rgba(0,0,0,0.2),0 16px 40px rgba(0,0,0,0.5)}
+    /* ── Glass FAB ── */
+    [data-glass="true"] .fab{background:var(--g-surf-card);color:var(--g-text);border:1px solid var(--g-border);box-shadow:var(--g-rim-strong),var(--g-rim-inner),var(--g-rim-bot),var(--g-shadow-drop)}
+    [data-glass="true"] .fab:hover{background:var(--g-surf-card-hover);box-shadow:var(--g-rim-strong),var(--g-rim-inner),var(--g-rim-bot),var(--g-shadow-drop)}
 
-    /* ── Glass Modal & Overlay — deep frosted glass ── */
-    [data-theme="glass"] .overlay{background:rgba(0,0,0,0.4);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
-    [data-theme="glass"] .modal{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.15);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.3),inset 0 20px 40px rgba(255,255,255,0.08),inset 0 -20px 40px rgba(0,0,0,0.2),0 24px 64px rgba(0,0,0,0.5)}
-    [data-theme="glass"] .modal input[type=text],[data-theme="glass"] .modal input[type=password],[data-theme="glass"] .modal select{background:rgba(255,255,255,0.07);border-color:rgba(255,255,255,0.15);color:#fff}
-    [data-theme="glass"] .modal input:focus,[data-theme="glass"] .modal select:focus{border-color:rgba(255,255,255,0.3);box-shadow:0 0 0 3px rgba(255,255,255,0.06)}
+    /* ── Glass Modal & Overlay ── */
+    [data-glass="true"] .overlay{background:rgba(0,0,0,0.4);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+    [data-glass="true"] .modal{background:var(--g-surf-modal);border:1px solid var(--g-border);box-shadow:var(--g-rim-strong),var(--g-rim-inner),var(--g-rim-bot),var(--g-shadow-drop)}
+    [data-glass="true"] .modal input[type=text],[data-glass="true"] .modal input[type=password],[data-glass="true"] .modal select{background:var(--g-input-bg);border-color:var(--g-border);color:var(--g-text)}
+    [data-glass="true"] .modal input:focus,[data-glass="true"] .modal select:focus{border-color:var(--g-border-hover);box-shadow:var(--g-input-ring)}
 
-    /* ── Glass Cards — frosted panels with specular top edge ── */
-    [data-theme="glass"] .ac-card,[data-theme="glass"] .storage-card,[data-theme="glass"] .public-upload-card{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.1);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.25),inset 0 10px 20px rgba(255,255,255,0.05),0 8px 32px rgba(0,0,0,0.2)}
-    [data-theme="glass"] .ac-card:hover,[data-theme="glass"] .storage-card:hover{border-color:rgba(255,255,255,0.2);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.4),inset 0 10px 20px rgba(255,255,255,0.1),0 12px 40px rgba(0,0,0,0.3)}
+    /* ── Glass Cards ── */
+    [data-glass="true"] .ac-card,[data-glass="true"] .storage-card,[data-glass="true"] .public-upload-card{background:var(--g-surf-card);border:1px solid var(--g-border);box-shadow:var(--g-rim-strong),var(--g-rim-inner),var(--g-shadow-drop)}
+    [data-glass="true"] .ac-card:hover,[data-glass="true"] .storage-card:hover{border-color:var(--g-border-hover);box-shadow:var(--g-rim-strong),var(--g-rim-inner),var(--g-shadow-drop);background:var(--g-surf-card-hover)}
 
     /* ── Glass Log Cards ── */
-    [data-theme="glass"] .log-card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.12)}
-    [data-theme="glass"] .log-card:hover{background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.2);box-shadow:inset 0 1px 0 rgba(255,255,255,0.2),0 4px 16px rgba(0,0,0,0.1)}
-    [data-theme="glass"] .dl-stat{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.15)}
+    [data-glass="true"] .log-card{background:var(--g-surf-card);border:1px solid var(--g-border);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:var(--g-rim-light)}
+    [data-glass="true"] .log-card:hover{background:var(--g-surf-card-hover);border-color:var(--g-border-hover);box-shadow:var(--g-rim-light),0 4px 16px rgba(0,0,0,0.1)}
+    [data-glass="true"] .dl-stat{background:var(--g-surf-card);border:1px solid var(--g-border);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--g-rim-light)}
 
     /* ── Glass Upload Panel ── */
-    [data-theme="glass"] .up-panel{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.15);border-bottom:none;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.3),inset 0 20px 40px rgba(255,255,255,0.05),0 -12px 48px rgba(0,0,0,0.3)}
-    [data-theme="glass"] .up-head{border-bottom:1px solid rgba(255,255,255,0.1)}
-    [data-theme="glass"] .up-item{border-bottom:1px solid rgba(255,255,255,0.06)}
-    [data-theme="glass"] .up-bar{background:rgba(255,255,255,0.1)}
-    [data-theme="glass"] .up-bar .fl{background:linear-gradient(90deg,rgba(255,255,255,0.5),rgba(255,255,255,0.3))}
+    [data-glass="true"] .up-panel{background:var(--g-surf-side);border:1px solid var(--g-border);border-bottom:none;box-shadow:var(--g-rim-strong),var(--g-rim-inner),var(--g-shadow-drop)}
+    [data-glass="true"] .up-head{border-bottom:1px solid var(--g-border)}
+    [data-glass="true"] .up-item{border-bottom:1px solid var(--g-border)}
+    [data-glass="true"] .up-bar{background:var(--g-surf-card)}
+    [data-glass="true"] .up-bar .fl{background:linear-gradient(90deg,rgba(255,255,255,0.8),rgba(255,255,255,0.4))}
 
     /* ── Glass Drop zone ── */
-    [data-theme="glass"] .drop{background:rgba(255,255,255,0.04);border-color:rgba(255,255,255,0.25)}
+    [data-glass="true"] .drop{background:var(--g-surf-card);border-color:var(--g-border-hover)}
 
     /* ── Glass Table ── */
-    [data-theme="glass"] .dl-table-wrap{background:rgba(255,255,255,0.03);border-color:rgba(255,255,255,0.1)}
-    [data-theme="glass"] .dl-table thead{background:rgba(255,255,255,0.04)}
-    [data-theme="glass"] .dl-table th{border-bottom-color:rgba(255,255,255,0.08)}
-    [data-theme="glass"] .dl-table td{border-bottom-color:rgba(255,255,255,0.05)}
-    [data-theme="glass"] .dl-table tr:hover{background:rgba(255,255,255,0.05)}
+    [data-glass="true"] .dl-table-wrap{background:var(--g-surf-card);border-color:var(--g-border)}
+    [data-glass="true"] .dl-table thead{background:var(--g-surf-card)}
+    [data-glass="true"] .dl-table th{border-bottom-color:var(--g-border)}
+    [data-glass="true"] .dl-table td{border-bottom-color:var(--g-border)}
+    [data-glass="true"] .dl-table tr:hover{background:var(--g-surf-card-hover)}
 
     /* ── Glass Form inputs ── */
-    [data-theme="glass"] .form-group input,[data-theme="glass"] .form-group select{background:rgba(255,255,255,0.06);border-color:rgba(255,255,255,0.12);color:#fff}
-    [data-theme="glass"] .form-group input:focus,[data-theme="glass"] .form-group select:focus{border-color:rgba(255,255,255,0.3);box-shadow:0 0 0 3px rgba(255,255,255,0.06)}
-    [data-theme="glass"] .form-group input::placeholder{color:rgba(255,255,255,0.3)}
+    [data-glass="true"] .form-group input,[data-glass="true"] .form-group select{background:var(--g-input-bg);border-color:var(--g-border);color:var(--g-text)}
+    [data-glass="true"] .form-group input:focus,[data-glass="true"] .form-group select:focus{border-color:var(--g-border-hover);box-shadow:var(--g-input-ring)}
+    [data-glass="true"] .form-group input::placeholder{color:var(--g-input-ph)}
 
     /* ── Glass Storage Modal ── */
-    [data-theme="glass"] #storage-modal>div{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.15);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.3),inset 0 20px 40px rgba(255,255,255,0.08),0 24px 64px rgba(0,0,0,0.4)}
-    [data-theme="glass"] #storage-modal>div>div:first-child{border-bottom-color:rgba(255,255,255,0.1)}
+    [data-glass="true"] #storage-modal>div{background:var(--g-surf-modal);border:1px solid var(--g-border);box-shadow:var(--g-rim-strong),var(--g-rim-inner),var(--g-shadow-drop)}
+    [data-glass="true"] #storage-modal>div>div:first-child{border-bottom-color:var(--g-border)}
 
     /* ── Glass test results ── */
-    [data-theme="glass"] .sm-test-result.ok{background:rgba(16,185,129,0.1);border-color:rgba(16,185,129,0.2)}
-    [data-theme="glass"] .sm-test-result.err{background:rgba(239,68,68,0.1);border-color:rgba(239,68,68,0.2)}
-    [data-theme="glass"] .sm-test-result.testing{background:rgba(245,158,11,0.1);border-color:rgba(245,158,11,0.2)}
+    [data-glass="true"] .sm-test-result.ok{background:rgba(16,185,129,0.1);border-color:rgba(16,185,129,0.2)}
+    [data-glass="true"] .sm-test-result.err{background:rgba(239,68,68,0.1);border-color:rgba(239,68,68,0.2)}
+    [data-glass="true"] .sm-test-result.testing{background:rgba(245,158,11,0.1);border-color:rgba(245,158,11,0.2)}
 
     /* ── Glass scrollbar ── */
-    [data-theme="glass"] ::-webkit-scrollbar{width:6px;height:6px}
-    [data-theme="glass"] ::-webkit-scrollbar-track{background:transparent}
-    [data-theme="glass"] ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.12);border-radius:3px}
-    [data-theme="glass"] ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.22)}
+    [data-glass="true"] ::-webkit-scrollbar{width:6px;height:6px}
+    [data-glass="true"] ::-webkit-scrollbar-track{background:transparent}
+    [data-glass="true"] ::-webkit-scrollbar-thumb{background:var(--g-border);border-radius:3px}
+    [data-glass="true"] ::-webkit-scrollbar-thumb:hover{background:var(--g-border-hover)}
 
     /* ── Glass misc ── */
-    [data-theme="glass"] #ac-hint{background:rgba(255,255,255,0.04);border-color:rgba(255,255,255,0.1)}
-    [data-theme="glass"] .demo-banner{background:rgba(255,255,255,0.08);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:#fff}
-    [data-theme="glass"] .side-overlay.on{background:rgba(0,0,0,0.3);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
-    [data-theme="glass"] .log-search input{background:rgba(255,255,255,0.06);border-color:rgba(255,255,255,0.12);color:#fff}
-    [data-theme="glass"] .log-search input::placeholder{color:rgba(255,255,255,0.3)}
-    [data-theme="glass"] .log-search input:focus{border-color:rgba(255,255,255,0.3);background:rgba(255,255,255,0.09)}
-    [data-theme="glass"] .batch-share-list{border-color:rgba(255,255,255,0.1)}
-    [data-theme="glass"] .batch-share-item{border-bottom-color:rgba(255,255,255,0.06)}
-    [data-theme="glass"] .ac button:hover{background:rgba(255,255,255,0.08)}
-    [data-theme="glass"] input[type=checkbox]{accent-color:rgba(200,200,200,0.9)}
-    [data-theme="glass"] .mod-badge.deleted{background:rgba(239,68,68,0.12)}
-    [data-theme="glass"] .mod-badge.racy{background:rgba(245,158,11,0.12)}
-    [data-theme="glass"] .mod-badge.kept{background:rgba(16,185,129,0.12)}
-    [data-theme="glass"] .bg-accent{background:rgba(255,255,255,0.05);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+    [data-glass="true"] #ac-hint{background:var(--g-surf-card);border-color:var(--g-border)}
+    [data-glass="true"] .demo-banner{background:var(--g-surf-card);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:var(--g-text);text-shadow:0 1px 2px rgba(255,255,255,0.4)}
+    [data-theme="dark"][data-glass="true"] .demo-banner{text-shadow:0 1px 2px rgba(0,0,0,0.4)}
+    [data-glass="true"] .side-overlay.on{background:rgba(0,0,0,0.3);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+    [data-glass="true"] .log-search input{background:var(--g-input-bg);border-color:var(--g-border);color:var(--g-text)}
+    [data-glass="true"] .log-search input::placeholder{color:var(--g-input-ph)}
+    [data-glass="true"] .log-search input:focus{border-color:var(--g-border-hover);background:var(--g-surf-card)}
+    [data-glass="true"] .batch-share-list{border-color:var(--g-border)}
+    [data-glass="true"] .batch-share-item{border-bottom-color:var(--g-border)}
+    [data-glass="true"] .ac button:hover{background:rgba(255,255,255,0.08)}
+    [data-glass="true"] input[type=checkbox]{accent-color:rgba(200,200,200,0.9)}
+    [data-glass="true"] .mod-badge.deleted{background:rgba(239,68,68,0.12)}
+    [data-glass="true"] .mod-badge.racy{background:rgba(245,158,11,0.12)}
+    [data-glass="true"] .mod-badge.kept{background:rgba(16,185,129,0.12)}
+    [data-glass="true"] .bg-accent{background:rgba(255,255,255,0.05);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
   </style>
 </head>
 <body${isDemo ? ' class="demo"' : ''}>
@@ -827,10 +895,10 @@ export function renderDashboard(isDemo: boolean = false): string {
     let currentBackend='';
 
     // Theme (3-state: light / dark / glass)
-    function initTheme(){var t=localStorage.getItem('iodrive_theme')||'light';if(t==='dark')document.documentElement.setAttribute('data-theme','dark');else if(t==='glass'){document.documentElement.setAttribute('data-theme','glass')}updThemeUI()}
-    function toggleTheme(){var cur=document.documentElement.getAttribute('data-theme')||'light';if(cur==='glass'){document.documentElement.removeAttribute('data-theme');localStorage.setItem('iodrive_theme','light')}else if(cur==='dark'){document.documentElement.removeAttribute('data-theme');localStorage.setItem('iodrive_theme','light')}else{document.documentElement.setAttribute('data-theme','dark');localStorage.setItem('iodrive_theme','dark')}updThemeUI()}
-    function toggleGlass(){var cur=document.documentElement.getAttribute('data-theme')||'light';if(cur==='glass'){document.documentElement.removeAttribute('data-theme');localStorage.setItem('iodrive_theme','light')}else{document.documentElement.setAttribute('data-theme','glass');localStorage.setItem('iodrive_theme','glass')}updThemeUI()}
-    function updThemeUI(){var cur=document.documentElement.getAttribute('data-theme')||'light';var tb=document.getElementById('theme-btn');var gb=document.getElementById('glass-btn');if(cur==='dark'){tb.textContent='\u2600\uFE0F'}else{tb.textContent='\uD83C\uDF19'}if(gb){if(cur==='glass'){gb.style.background='rgba(255,255,255,0.15)';gb.style.borderColor='rgba(255,255,255,0.4)';gb.style.boxShadow='inset 0 0 0 1px rgba(255,255,255,0.5),0 0 12px rgba(0,0,0,0.3)'}else{gb.style.background='';gb.style.borderColor='';gb.style.boxShadow=''}}}
+    function initTheme(){var t=localStorage.getItem('iodrive_theme')||'light';var g=localStorage.getItem('iodrive_glass');if(t==='dark'){document.documentElement.setAttribute('data-theme','dark')}else{document.documentElement.setAttribute('data-theme','light')}if(g==='true'){document.documentElement.setAttribute('data-glass','true')}updThemeUI()}
+    function toggleTheme(){var cur=document.documentElement.getAttribute('data-theme')||'light';if(cur==='dark'){document.documentElement.setAttribute('data-theme','light');localStorage.setItem('iodrive_theme','light')}else{document.documentElement.setAttribute('data-theme','dark');localStorage.setItem('iodrive_theme','dark')}updThemeUI()}
+    function toggleGlass(){var g=document.documentElement.getAttribute('data-glass');if(g==='true'){document.documentElement.removeAttribute('data-glass');localStorage.setItem('iodrive_glass','false')}else{document.documentElement.setAttribute('data-glass','true');localStorage.setItem('iodrive_glass','true')}updThemeUI()}
+    function updThemeUI(){var cur=document.documentElement.getAttribute('data-theme')||'light';var g=document.documentElement.getAttribute('data-glass');var tb=document.getElementById('theme-btn');var gb=document.getElementById('glass-btn');if(tb){if(cur==='dark'){tb.textContent='\u2600\uFE0F'}else{tb.textContent='\uD83C\uDF19'}}if(gb){if(g==='true'){gb.style.background='rgba(128,128,128,0.2)';gb.style.borderColor='rgba(128,128,128,0.4)';gb.style.boxShadow='inset 0 0 0 1px rgba(255,255,255,0.2)'}else{gb.style.background='';gb.style.borderColor='';gb.style.boxShadow=''}}}
     initTheme();
 
     // ESC 键关闭弹窗
