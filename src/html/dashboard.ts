@@ -316,7 +316,7 @@ export function renderDashboard(isDemo: boolean = false): string {
     [data-theme="glass"] .layout{position:relative;z-index:1}
 
     /* ── Liquid Glass surface — shared mixin via .lg-surface ── */
-    /* The core: SVG displacement filter for edge refraction */
+    /* The core: SVG displacement filter applied to edges + blur */
     [data-theme="glass"] .side,
     [data-theme="glass"] .modal,
     [data-theme="glass"] .ac-card,
@@ -324,10 +324,13 @@ export function renderDashboard(isDemo: boolean = false): string {
     [data-theme="glass"] .public-upload-card,
     [data-theme="glass"] .fab,
     [data-theme="glass"] .up-panel,
-    [data-theme="glass"] #storage-modal>div{filter:url(#liquid-glass-refract)}
+    [data-theme="glass"] #storage-modal>div{
+      backdrop-filter: blur(24px) saturate(1.5) url(#liquid-glass-edge);
+      -webkit-backdrop-filter: blur(24px) saturate(1.5) url(#liquid-glass-edge);
+    }
 
     /* ── Glass Sidebar ── */
-    [data-theme="glass"] .side{background:rgba(255,255,255,0.07);backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6);border-right:1px solid rgba(255,255,255,0.18);box-shadow:inset 0 1px 0 rgba(255,255,255,0.25),inset -1px 0 0 rgba(255,255,255,0.06),2px 0 20px rgba(0,0,0,0.2)}
+    [data-theme="glass"] .side{background:rgba(255,255,255,0.03);border-right:1px solid rgba(255,255,255,0.1);box-shadow:inset -1px 0 0 rgba(255,255,255,0.2),inset 1px 0 0 rgba(255,255,255,0.4),10px 0 30px rgba(0,0,0,0.3)}
     [data-theme="glass"] .nav{color:rgba(255,255,255,0.55)}
     [data-theme="glass"] .nav:hover{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.9)}
     [data-theme="glass"] .nav.on{background:rgba(255,255,255,0.13);color:#fff;border:1px solid rgba(255,255,255,0.18);box-shadow:inset 0 1px 0 rgba(255,255,255,0.2),0 2px 8px rgba(0,0,0,0.1)}
@@ -335,7 +338,7 @@ export function renderDashboard(isDemo: boolean = false): string {
     [data-theme="glass"] .side-logo{color:#fff}
 
     /* ── Glass Topbar ── */
-    [data-theme="glass"] .topbar{background:rgba(255,255,255,0.06);backdrop-filter:blur(20px) saturate(1.4);-webkit-backdrop-filter:blur(20px) saturate(1.4);border-bottom:1px solid rgba(255,255,255,0.15);box-shadow:inset 0 1px 0 rgba(255,255,255,0.2),0 2px 12px rgba(0,0,0,0.15)}
+    [data-theme="glass"] .topbar{background:rgba(255,255,255,0.02);backdrop-filter:blur(20px) saturate(1.4);-webkit-backdrop-filter:blur(20px) saturate(1.4);border-bottom:1px solid rgba(255,255,255,0.1);box-shadow:inset 0 1px 0 rgba(255,255,255,0.3),inset 0 -1px 0 rgba(255,255,255,0.1),0 4px 20px rgba(0,0,0,0.2)}
     [data-theme="glass"] .search input{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#fff}
     [data-theme="glass"] .search input::placeholder{color:rgba(255,255,255,0.35)}
     [data-theme="glass"] .search input:focus{border-color:rgba(255,255,255,0.35);background:rgba(255,255,255,0.12);box-shadow:0 0 0 3px rgba(255,255,255,0.06)}
@@ -355,24 +358,24 @@ export function renderDashboard(isDemo: boolean = false): string {
     [data-theme="glass"] .sel-toolbar{background:rgba(255,255,255,0.05);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid rgba(255,255,255,0.12)}
 
     /* ── Glass Buttons — with specular edge highlight ── */
-    [data-theme="glass"] .btn-p{background:rgba(255,255,255,0.15);color:#fff;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.28);box-shadow:inset 0 1px 0 rgba(255,255,255,0.35),inset 0 -1px 0 rgba(0,0,0,0.1),0 4px 12px rgba(0,0,0,0.15);transition:all .3s cubic-bezier(.34,1.56,.64,1)}
-    [data-theme="glass"] .btn-p:hover{background:rgba(255,255,255,0.22);box-shadow:inset 0 1px 0 rgba(255,255,255,0.4),inset 0 -1px 0 rgba(0,0,0,0.1),0 6px 20px rgba(0,0,0,0.2);transform:translateY(-2px) scale(1.02)}
+    [data-theme="glass"] .btn-p{background:rgba(255,255,255,0.1);color:#fff;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.15);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.3),inset 0 4px 10px rgba(255,255,255,0.15),0 4px 12px rgba(0,0,0,0.2);border-radius:20px;transition:all .3s cubic-bezier(.34,1.56,.64,1)}
+    [data-theme="glass"] .btn-p:hover{background:rgba(255,255,255,0.15);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.5),inset 0 4px 12px rgba(255,255,255,0.2),0 6px 16px rgba(0,0,0,0.3);transform:translateY(-2px) scale(1.02)}
     [data-theme="glass"] .btn-s{background:rgba(255,255,255,0.05);color:rgba(255,255,255,0.8);border:1px solid rgba(255,255,255,0.12)}
     [data-theme="glass"] .btn-s:hover{background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.2)}
 
     /* ── Glass FAB — liquid bubble ── */
-    [data-theme="glass"] .fab{background:rgba(255,255,255,0.12);color:#fff;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.3);box-shadow:inset 0 2px 0 rgba(255,255,255,0.3),inset 0 -2px 4px rgba(0,0,0,0.15),0 8px 32px rgba(0,0,0,0.25),0 0 20px rgba(0,0,0,0.08)}
-    [data-theme="glass"] .fab:hover{background:rgba(255,255,255,0.2);box-shadow:inset 0 2px 0 rgba(255,255,255,0.4),inset 0 -2px 4px rgba(0,0,0,0.15),0 8px 32px rgba(0,0,0,0.35),0 0 30px rgba(0,0,0,0.12)}
+    [data-theme="glass"] .fab{background:rgba(255,255,255,0.05);color:#fff;border:1px solid rgba(255,255,255,0.15);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.4),inset 0 8px 16px rgba(255,255,255,0.15),inset 0 -8px 16px rgba(0,0,0,0.2),0 12px 32px rgba(0,0,0,0.4)}
+    [data-theme="glass"] .fab:hover{background:rgba(255,255,255,0.1);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.6),inset 0 8px 16px rgba(255,255,255,0.25),inset 0 -8px 16px rgba(0,0,0,0.2),0 16px 40px rgba(0,0,0,0.5)}
 
     /* ── Glass Modal & Overlay — deep frosted glass ── */
-    [data-theme="glass"] .overlay{background:rgba(0,0,0,0.35);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
-    [data-theme="glass"] .modal{background:rgba(255,255,255,0.08);backdrop-filter:blur(30px) saturate(1.5);-webkit-backdrop-filter:blur(30px) saturate(1.5);border:1px solid rgba(255,255,255,0.2);box-shadow:inset 0 1px 0 rgba(255,255,255,0.3),inset 0 -1px 0 rgba(255,255,255,0.05),0 12px 48px rgba(0,0,0,0.3),0 0 24px rgba(0,0,0,0.08)}
+    [data-theme="glass"] .overlay{background:rgba(0,0,0,0.4);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+    [data-theme="glass"] .modal{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.15);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.3),inset 0 20px 40px rgba(255,255,255,0.08),inset 0 -20px 40px rgba(0,0,0,0.2),0 24px 64px rgba(0,0,0,0.5)}
     [data-theme="glass"] .modal input[type=text],[data-theme="glass"] .modal input[type=password],[data-theme="glass"] .modal select{background:rgba(255,255,255,0.07);border-color:rgba(255,255,255,0.15);color:#fff}
     [data-theme="glass"] .modal input:focus,[data-theme="glass"] .modal select:focus{border-color:rgba(255,255,255,0.3);box-shadow:0 0 0 3px rgba(255,255,255,0.06)}
 
     /* ── Glass Cards — frosted panels with specular top edge ── */
-    [data-theme="glass"] .ac-card,[data-theme="glass"] .storage-card,[data-theme="glass"] .public-upload-card{background:rgba(255,255,255,0.06);backdrop-filter:blur(18px) saturate(1.3);-webkit-backdrop-filter:blur(18px) saturate(1.3);border:1px solid rgba(255,255,255,0.18);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22),0 4px 20px rgba(0,0,0,0.15)}
-    [data-theme="glass"] .ac-card:hover,[data-theme="glass"] .storage-card:hover{border-color:rgba(255,255,255,0.3);box-shadow:inset 0 1px 0 rgba(255,255,255,0.3),0 6px 24px rgba(0,0,0,0.2),0 0 16px rgba(0,0,0,0.06)}
+    [data-theme="glass"] .ac-card,[data-theme="glass"] .storage-card,[data-theme="glass"] .public-upload-card{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.1);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.25),inset 0 10px 20px rgba(255,255,255,0.05),0 8px 32px rgba(0,0,0,0.2)}
+    [data-theme="glass"] .ac-card:hover,[data-theme="glass"] .storage-card:hover{border-color:rgba(255,255,255,0.2);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.4),inset 0 10px 20px rgba(255,255,255,0.1),0 12px 40px rgba(0,0,0,0.3)}
 
     /* ── Glass Log Cards ── */
     [data-theme="glass"] .log-card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.12)}
@@ -380,7 +383,7 @@ export function renderDashboard(isDemo: boolean = false): string {
     [data-theme="glass"] .dl-stat{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.15)}
 
     /* ── Glass Upload Panel ── */
-    [data-theme="glass"] .up-panel{background:rgba(255,255,255,0.07);backdrop-filter:blur(24px) saturate(1.4);-webkit-backdrop-filter:blur(24px) saturate(1.4);border:1px solid rgba(255,255,255,0.2);border-bottom:none;box-shadow:inset 0 1px 0 rgba(255,255,255,0.25),0 -4px 24px rgba(0,0,0,0.2)}
+    [data-theme="glass"] .up-panel{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.15);border-bottom:none;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.3),inset 0 20px 40px rgba(255,255,255,0.05),0 -12px 48px rgba(0,0,0,0.3)}
     [data-theme="glass"] .up-head{border-bottom:1px solid rgba(255,255,255,0.1)}
     [data-theme="glass"] .up-item{border-bottom:1px solid rgba(255,255,255,0.06)}
     [data-theme="glass"] .up-bar{background:rgba(255,255,255,0.1)}
@@ -402,7 +405,7 @@ export function renderDashboard(isDemo: boolean = false): string {
     [data-theme="glass"] .form-group input::placeholder{color:rgba(255,255,255,0.3)}
 
     /* ── Glass Storage Modal ── */
-    [data-theme="glass"] #storage-modal>div{background:rgba(255,255,255,0.07);backdrop-filter:blur(30px) saturate(1.5);-webkit-backdrop-filter:blur(30px) saturate(1.5);border:1px solid rgba(255,255,255,0.18);box-shadow:inset 0 1px 0 rgba(255,255,255,0.25),0 12px 48px rgba(0,0,0,0.3)}
+    [data-theme="glass"] #storage-modal>div{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.15);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.3),inset 0 20px 40px rgba(255,255,255,0.08),0 24px 64px rgba(0,0,0,0.4)}
     [data-theme="glass"] #storage-modal>div>div:first-child{border-bottom-color:rgba(255,255,255,0.1)}
 
     /* ── Glass test results ── */
@@ -435,18 +438,28 @@ export function renderDashboard(isDemo: boolean = false): string {
 </head>
 <body${isDemo ? ' class="demo"' : ''}>
   ${isDemo ? '<div class="demo-banner">🔒 演示环境 — 文件上传已禁用，仅可浏览和下载</div>' : ''}
-  <!-- SVG Liquid Glass filter: feDisplacementMap for edge refraction -->
+  <!-- SVG Liquid Glass filter: Edge-only Refraction -->
   <svg id="liquid-glass-svg" width="0" height="0" style="position:absolute;pointer-events:none">
     <defs>
-      <filter id="liquid-glass-refract" x="-5%" y="-5%" width="110%" height="110%" color-interpolation-filters="sRGB">
-        <!-- Generate noise pattern for displacement -->
-        <feTurbulence type="fractalNoise" baseFrequency="0.015 0.015" numOctaves="3" seed="2" result="noise"/>
-        <!-- Edge displacement: distort only edges via displacement map -->
-        <feDisplacementMap in="SourceGraphic" in2="noise" scale="6" xChannelSelector="R" yChannelSelector="G" result="displaced"/>
-        <!-- Blend displaced with original for subtle edge-only effect -->
-        <feGaussianBlur in="displaced" stdDeviation="0.4" result="softened"/>
+      <filter id="liquid-glass-edge" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+        <!-- 1. Generate smooth fluid noise for displacement -->
+        <feTurbulence type="fractalNoise" baseFrequency="0.012 0.012" numOctaves="2" seed="5" result="noise"/>
+        
+        <!-- 2. Displace the entire background (this will be our refracted edge) -->
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="25" xChannelSelector="R" yChannelSelector="G" result="displaced"/>
+        <feGaussianBlur in="displaced" stdDeviation="2" result="displacedBlurred"/>
+
+        <!-- 3. Isolate the center using SourceAlpha (bounding box of the element) eroded by 6px -->
+        <feMorphology in="SourceAlpha" operator="erode" radius="6" result="innerMask"/>
+        <feGaussianBlur in="innerMask" stdDeviation="3" result="innerMaskSoft"/>
+        
+        <!-- 4. Extract the undisplaced center -->
+        <feComposite in="SourceGraphic" in2="innerMaskSoft" operator="in" result="center"/>
+
+        <!-- 5. Merge: Place the sharp undisplaced center over the distorted edge -->
         <feMerge>
-          <feMergeNode in="softened"/>
+          <feMergeNode in="displacedBlurred"/>
+          <feMergeNode in="center"/>
         </feMerge>
       </filter>
     </defs>
@@ -817,7 +830,7 @@ export function renderDashboard(isDemo: boolean = false): string {
     function initTheme(){var t=localStorage.getItem('iodrive_theme')||'light';if(t==='dark')document.documentElement.setAttribute('data-theme','dark');else if(t==='glass'){document.documentElement.setAttribute('data-theme','glass')}updThemeUI()}
     function toggleTheme(){var cur=document.documentElement.getAttribute('data-theme')||'light';if(cur==='glass'){document.documentElement.removeAttribute('data-theme');localStorage.setItem('iodrive_theme','light')}else if(cur==='dark'){document.documentElement.removeAttribute('data-theme');localStorage.setItem('iodrive_theme','light')}else{document.documentElement.setAttribute('data-theme','dark');localStorage.setItem('iodrive_theme','dark')}updThemeUI()}
     function toggleGlass(){var cur=document.documentElement.getAttribute('data-theme')||'light';if(cur==='glass'){document.documentElement.removeAttribute('data-theme');localStorage.setItem('iodrive_theme','light')}else{document.documentElement.setAttribute('data-theme','glass');localStorage.setItem('iodrive_theme','glass')}updThemeUI()}
-    function updThemeUI(){var cur=document.documentElement.getAttribute('data-theme')||'light';var tb=document.getElementById('theme-btn');var gb=document.getElementById('glass-btn');if(cur==='dark'){tb.textContent='\u2600\uFE0F'}else{tb.textContent='\uD83C\uDF19'}if(gb){if(cur==='glass'){gb.style.background='rgba(255,255,255,0.15)';gb.style.borderColor='rgba(255,255,255,0.35)';gb.style.boxShadow='inset 0 1px 0 rgba(255,255,255,0.3),0 0 12px rgba(0,0,0,0.15)'}else{gb.style.background='';gb.style.borderColor='';gb.style.boxShadow=''}}}
+    function updThemeUI(){var cur=document.documentElement.getAttribute('data-theme')||'light';var tb=document.getElementById('theme-btn');var gb=document.getElementById('glass-btn');if(cur==='dark'){tb.textContent='\u2600\uFE0F'}else{tb.textContent='\uD83C\uDF19'}if(gb){if(cur==='glass'){gb.style.background='rgba(255,255,255,0.15)';gb.style.borderColor='rgba(255,255,255,0.4)';gb.style.boxShadow='inset 0 0 0 1px rgba(255,255,255,0.5),0 0 12px rgba(0,0,0,0.3)'}else{gb.style.background='';gb.style.borderColor='';gb.style.boxShadow=''}}}
     initTheme();
 
     // ESC 键关闭弹窗
