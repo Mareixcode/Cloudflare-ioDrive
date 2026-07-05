@@ -10,7 +10,10 @@ import { uploadKeyRoutes, uploadKeyPublicRoutes } from './upload-keys';
 import { uploadPublicRoutes } from './upload-public';
 import { uploadLogRoutes } from './upload-logs';
 import { storageConfigRoutes } from './storage-config';
+import { picgoRoutes } from './picgo';
+import { galleryRoutes } from './gallery';
 import { renderDashboard } from './html/dashboard';
+import { renderGallery } from './html/gallery';
 import { renderLogin } from './html/login';
 import { renderSharePage } from './html/share';
 import { renderUploadKeyPage } from './html/upload-key';
@@ -78,6 +81,7 @@ app.get('/', (c) => c.html(renderDashboard(isDemoHost(c))));
 app.get('/s/:token', (c) => c.html(renderSharePage(c.req.param('token'), c.env.TURNSTILE_SITE_KEY)));
 app.get('/u/:keyId', (c) => c.html(renderUploadKeyPage(c.req.param('keyId'), c.env.TURNSTILE_SITE_KEY)));
 app.get('/upload', (c) => c.html(renderPublicUploadPage(c.env.TURNSTILE_SITE_KEY)));
+app.get('/gallery', (c) => c.html(renderGallery()));
 
 // ── API ───────────────────────────────────
 
@@ -94,6 +98,8 @@ app.route('/api/upload-logs', uploadLogRoutes);
 app.route('/api/storage', storageConfigRoutes);
 app.route('/api/moderation', moderationAdminRoutes);
 app.route('/api/random', randomAdminRoutes);
+app.route('/api/picgo', picgoRoutes);
+app.route('/api/gallery', galleryRoutes);
 
 app.route('/dav', webdavRoutes);
 app.route('/random', randomRoutes);
