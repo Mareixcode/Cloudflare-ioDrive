@@ -104,6 +104,17 @@ app.route('/api/gallery', galleryRoutes);
 app.route('/dav', webdavRoutes);
 app.route('/random', randomRoutes);
 
+// ── Debug R2 ───────────────────────────────────
+app.get('/debug-r2', async (c) => {
+  if (!c.env.DRIVE) return c.json({ error: 'DRIVE is not bound' });
+  const listed = await c.env.DRIVE.list({ limit: 100 });
+  return c.json({
+    objects: listed.objects.map(o => o.key),
+    truncated: listed.truncated,
+    total: listed.objects.length
+  });
+});
+
 // ── Migration: R2 JSON -> D1 ────────────────
 //
 // POST /api/migration/r2-to-d1
