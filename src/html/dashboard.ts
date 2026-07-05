@@ -202,8 +202,8 @@ export function renderDashboard(isDemo: boolean = false): string {
 
     /* ── Small tablet / landscape phone (≤768px) ── */
     @media(max-width:768px){
-      .side{position:fixed;left:0;top:0;bottom:0;transform:translateX(-100%);box-shadow:4px 0 20px rgba(0,0,0,0.15)}
-      .side.open{transform:translateX(0)}
+      .side{position:fixed;left:0;top:0;bottom:0;transform:translateX(-100%);box-shadow:4px 0 20px rgba(0,0,0,0.15);visibility:hidden;transition:background .35s,border .35s,transform .3s cubic-bezier(.34,1.56,.64,1),visibility .3s}
+      .side.open{transform:translateX(0);visibility:visible}
       .side-close{display:flex}
       .hamburger{display:flex}
       .topbar{padding:10px 16px;gap:8px}
