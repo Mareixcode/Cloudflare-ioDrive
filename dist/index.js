@@ -3797,13 +3797,6 @@ var D1_INIT_INDEXES = [
   "CREATE INDEX IF NOT EXISTS idx_kv_expires        ON kv(expires_at) WHERE expires_at IS NOT NULL",
   "CREATE INDEX IF NOT EXISTS idx_kv_label          ON kv(label) WHERE label IS NOT NULL"
 ];
-var D1_INIT_TRIGGER = `
-CREATE TRIGGER IF NOT EXISTS kv_updated_at
-    AFTER UPDATE ON kv
-BEGIN
-    UPDATE kv SET updated_at = unixepoch() WHERE id = NEW.id;
-END
-`;
 var initPromise = null;
 async function ensureD1Schema(env) {
   if (!env.META_DB) return;
@@ -3816,7 +3809,6 @@ async function ensureD1Schema(env) {
         for (const idx of D1_INIT_INDEXES) {
           await env.META_DB.exec(idx);
         }
-        await env.META_DB.exec(D1_INIT_TRIGGER);
       }
     } catch (e) {
       console.error("D1 schema init failed:", e);
@@ -4010,6 +4002,39 @@ async function uniqueKey(storage, path, filename) {
 }
 __name(uniqueKey, "uniqueKey");
 
+// src/s3-sign.ts
+function amzDate() {
+  return (/* @__PURE__ */ new Date()).toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "") + "Z";
+}
+__name(amzDate, "amzDate");
+async function sha256Hex2(data) {
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(data));
+  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+__name(sha256Hex2, "sha256Hex");
+async function hmacBytes(key, data) {
+  const k = key instanceof Uint8Array ? await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]) : key;
+  return new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(data)));
+}
+__name(hmacBytes, "hmacBytes");
+async function hmacHex(key, data) {
+  const bytes = await hmacBytes(key, data);
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+__name(hmacHex, "hmacHex");
+async function getSigningKey(secret, date, region, service) {
+  const enc = new TextEncoder();
+  const kSecret = await crypto.subtle.importKey("raw", enc.encode("AWS4" + secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const kDate = await hmacBytes(kSecret, date);
+  const kDateKey = await crypto.subtle.importKey("raw", kDate, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const kRegion = await hmacBytes(kDateKey, region);
+  const kRegionKey = await crypto.subtle.importKey("raw", kRegion, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const kService = await hmacBytes(kRegionKey, service);
+  const kServiceKey = await crypto.subtle.importKey("raw", kService, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return await hmacBytes(kServiceKey, "aws4_request");
+}
+__name(getSigningKey, "getSigningKey");
+
 // src/s3-upload.ts
 function buildS3Url(cfg, key) {
   const encoded = "/" + encodeURIComponent(key).replace(/%2F/g, "/");
@@ -4146,37 +4171,6 @@ async function signRequest(cfg, method, path, headers, payloadHash) {
   return `AWS4-HMAC-SHA256 Credential=${cfg.accessKey}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
 }
 __name(signRequest, "signRequest");
-function amzDate() {
-  return (/* @__PURE__ */ new Date()).toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "") + "Z";
-}
-__name(amzDate, "amzDate");
-async function sha256Hex2(data) {
-  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(data));
-  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-__name(sha256Hex2, "sha256Hex");
-async function hmacBytes(key, data) {
-  const k = key instanceof Uint8Array ? await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]) : key;
-  return new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(data)));
-}
-__name(hmacBytes, "hmacBytes");
-async function hmacHex(key, data) {
-  const bytes = await hmacBytes(key, data);
-  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-__name(hmacHex, "hmacHex");
-async function getSigningKey(secret, date, region, service) {
-  const enc = new TextEncoder();
-  const kSecret = await crypto.subtle.importKey("raw", enc.encode("AWS4" + secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const kDate = await hmacBytes(kSecret, date);
-  const kDateKey = await crypto.subtle.importKey("raw", kDate, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const kRegion = await hmacBytes(kDateKey, region);
-  const kRegionKey = await crypto.subtle.importKey("raw", kRegion, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const kService = await hmacBytes(kRegionKey, service);
-  const kServiceKey = await crypto.subtle.importKey("raw", kService, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  return await hmacBytes(kServiceKey, "aws4_request");
-}
-__name(getSigningKey, "getSigningKey");
 
 // src/storage.ts
 var _runtimeConfig = null;
@@ -4542,29 +4536,16 @@ var S3StorageEngine = class {
     return `AWS4-HMAC-SHA256 Credential=${this.cfg.accessKey}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
   }
   amzDate() {
-    return (/* @__PURE__ */ new Date()).toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "") + "Z";
+    return amzDate();
   }
-  async sha256Hex(data) {
-    const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(data));
-    return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  sha256Hex(data) {
+    return sha256Hex2(data);
   }
-  async hmacBytes(key, data) {
-    const k = key instanceof Uint8Array ? await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]) : key;
-    return new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(data)));
+  hmacHex(key, data) {
+    return hmacHex(key, data);
   }
-  async hmacHex(key, data) {
-    return [...await this.hmacBytes(key, data)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  }
-  async getSigningKey(secret, date, region, service) {
-    const enc = new TextEncoder();
-    const kSecret = await crypto.subtle.importKey("raw", enc.encode("AWS4" + secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-    const kDate = await this.hmacBytes(kSecret, date);
-    const kDateKey = await crypto.subtle.importKey("raw", kDate, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-    const kRegion = await this.hmacBytes(kDateKey, region);
-    const kRegionKey = await crypto.subtle.importKey("raw", kRegion, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-    const kService = await this.hmacBytes(kRegionKey, service);
-    const kServiceKey = await crypto.subtle.importKey("raw", kService, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-    return await this.hmacBytes(kServiceKey, "aws4_request");
+  getSigningKey(secret, date, region, service) {
+    return getSigningKey(secret, date, region, service);
   }
   async list(prefix, options) {
     const host = this.cfg.pathStyle ? this.cfg.endpoint : `${this.bucket}.${this.cfg.endpoint}`;
@@ -4763,6 +4744,117 @@ async function createStorageEngineForBackend(env, backendName) {
 }
 __name(createStorageEngineForBackend, "createStorageEngineForBackend");
 
+// src/cache.ts
+function getParentPrefix(key) {
+  if (key.endsWith("/")) {
+    const parts = key.slice(0, -1).split("/");
+    parts.pop();
+    if (parts.length === 0) return "uploads/";
+    return parts.join("/") + "/";
+  } else {
+    const parts = key.split("/");
+    parts.pop();
+    if (parts.length === 0) return "uploads/";
+    return parts.join("/") + "/";
+  }
+}
+__name(getParentPrefix, "getParentPrefix");
+async function getFileCache(env, backend, prefix) {
+  if (!env.CACHE_KV) return null;
+  try {
+    const cacheKey = `file_index:${backend}:${prefix}`;
+    const value = await env.CACHE_KV.get(cacheKey);
+    if (!value) return null;
+    return JSON.parse(value);
+  } catch (err) {
+    console.error("Failed to read file list cache:", err);
+    return null;
+  }
+}
+__name(getFileCache, "getFileCache");
+async function setFileCache(env, backend, prefix, data) {
+  if (!env.CACHE_KV) return;
+  try {
+    const cacheKey = `file_index:${backend}:${prefix}`;
+    await env.CACHE_KV.put(cacheKey, JSON.stringify(data), {
+      expirationTtl: 600
+      // 10 分钟配置
+    });
+  } catch (err) {
+    console.error("Failed to write file list cache:", err);
+  }
+}
+__name(setFileCache, "setFileCache");
+async function getFoldersCache(env, backend) {
+  if (!env.CACHE_KV) return null;
+  try {
+    const cacheKey = `folders_list:${backend}`;
+    const value = await env.CACHE_KV.get(cacheKey);
+    if (!value) return null;
+    return JSON.parse(value);
+  } catch (err) {
+    console.error("Failed to read folders list cache:", err);
+    return null;
+  }
+}
+__name(getFoldersCache, "getFoldersCache");
+async function setFoldersCache(env, backend, folders) {
+  if (!env.CACHE_KV) return;
+  try {
+    const cacheKey = `folders_list:${backend}`;
+    await env.CACHE_KV.put(cacheKey, JSON.stringify(folders), {
+      expirationTtl: 600
+    });
+  } catch (err) {
+    console.error("Failed to write folders list cache:", err);
+  }
+}
+__name(setFoldersCache, "setFoldersCache");
+async function clearFileCache(env, backend, key) {
+  if (!env.CACHE_KV) return;
+  try {
+    const parent = getParentPrefix(key);
+    const cacheKey = `file_index:${backend}:${parent}`;
+    const foldersKey = `folders_list:${backend}`;
+    const promises = [
+      env.CACHE_KV.delete(cacheKey),
+      env.CACHE_KV.delete(foldersKey)
+    ];
+    if (key.endsWith("/")) {
+      promises.push(env.CACHE_KV.delete(`file_index:${backend}:${key}`));
+    }
+    await Promise.all(promises);
+  } catch (err) {
+    console.error("Failed to clear file cache:", err);
+  }
+}
+__name(clearFileCache, "clearFileCache");
+async function clearFileCacheBatch(env, backend, keys) {
+  if (!env.CACHE_KV) return;
+  try {
+    const parents = /* @__PURE__ */ new Set();
+    const specificKeys = /* @__PURE__ */ new Set();
+    for (const key of keys) {
+      parents.add(getParentPrefix(key));
+      if (key.endsWith("/")) {
+        specificKeys.add(key);
+      }
+    }
+    const promises = [];
+    for (const parent of parents) {
+      promises.push(env.CACHE_KV.delete(`file_index:${backend}:${parent}`));
+    }
+    for (const specificKey of specificKeys) {
+      promises.push(env.CACHE_KV.delete(`file_index:${backend}:${specificKey}`));
+    }
+    promises.push(env.CACHE_KV.delete(`folders_list:${backend}`));
+    await Promise.all(promises);
+  } catch (err) {
+    console.error("Failed to clear file cache batch:", err);
+  }
+}
+__name(clearFileCacheBatch, "clearFileCacheBatch");
+
 // src/files.ts
 var filesRoutes = new Hono2();
 filesRoutes.use("*", jwtAuth);
@@ -4773,8 +4865,12 @@ __name(getEngine, "getEngine");
 filesRoutes.get("/", async (c) => {
   try {
     const backend = c.req.query("backend") || "";
-    const engine = await getEngine(c.env, backend);
     const prefix = c.req.query("prefix") || "uploads/";
+    const cached = await getFileCache(c.env, backend, prefix);
+    if (cached) {
+      return c.json(cached);
+    }
+    const engine = await getEngine(c.env, backend);
     const listed = await engine.list(prefix, { delimiter: "/" });
     const files = listed.objects.filter((obj) => !obj.key.endsWith("/") && !obj.key.startsWith("_")).map((obj) => ({
       key: obj.key,
@@ -4799,7 +4895,9 @@ filesRoutes.get("/", async (c) => {
         path: "uploads/" + ancestorParts.slice(0, i + 1).join("/") + "/"
       });
     }
-    return c.json({ files, folders: folderMetas, currentPath, ancestors });
+    const result = { files, folders: folderMetas, currentPath, ancestors };
+    c.executionCtx.waitUntil(setFileCache(c.env, backend, prefix, result));
+    return c.json(result);
   } catch (err) {
     console.error("files list error:", err);
     return c.json({ error: "Failed to list files: " + (err?.message || String(err)) }, 500);
@@ -4807,6 +4905,10 @@ filesRoutes.get("/", async (c) => {
 });
 filesRoutes.get("/folders", async (c) => {
   const backend = c.req.query("backend") || "";
+  const cached = await getFoldersCache(c.env, backend);
+  if (cached) {
+    return c.json({ folders: cached });
+  }
   const engine = await getEngine(c.env, backend);
   const folders = [];
   async function collect(prefix, depth) {
@@ -4819,6 +4921,7 @@ filesRoutes.get("/folders", async (c) => {
   }
   __name(collect, "collect");
   await collect("uploads/", 0);
+  c.executionCtx.waitUntil(setFoldersCache(c.env, backend, folders));
   return c.json({ folders });
 });
 filesRoutes.post("/folder", async (c) => {
@@ -4830,6 +4933,7 @@ filesRoutes.post("/folder", async (c) => {
   const existing = await engine.head(folderKey);
   if (existing) return c.json({ error: "\u6587\u4EF6\u5939\u5DF2\u5B58\u5728" }, 409);
   await engine.put(folderKey, "", { contentType: "application/x-directory" });
+  c.executionCtx.waitUntil(clearFileCache(c.env, backend, folderKey));
   return c.json({ ok: true, path: folderKey });
 });
 function assertValidKey(key) {
@@ -4846,13 +4950,28 @@ filesRoutes.delete("/:key{.+}", async (c) => {
   const key = c.req.param("key");
   assertValidKey(key);
   if (key.endsWith("/")) {
-    const listed = await engine.list(key);
-    const keys = listed.objects.map((o) => o.key);
-    if (keys.length > 0) await engine.delete(keys);
-    if (!keys.includes(key)) await engine.delete(key);
+    let cursor;
+    const allKeys = [];
+    do {
+      const listed = await engine.list(key, { limit: 1e3, cursor });
+      for (const o of listed.objects) {
+        allKeys.push(o.key);
+      }
+      cursor = listed.truncated ? listed.cursor : void 0;
+    } while (cursor);
+    if (allKeys.length > 0) {
+      for (let i = 0; i < allKeys.length; i += 100) {
+        await engine.delete(allKeys.slice(i, i + 100));
+      }
+    }
+    if (!allKeys.includes(key)) {
+      await engine.delete(key).catch(() => {
+      });
+    }
   } else {
     await engine.delete(key);
   }
+  c.executionCtx.waitUntil(clearFileCache(c.env, backend, key));
   return c.json({ ok: true });
 });
 filesRoutes.post("/batch-delete", async (c) => {
@@ -4864,9 +4983,15 @@ filesRoutes.post("/batch-delete", async (c) => {
   const expanded = [];
   for (const key of keys) {
     if (key.endsWith("/")) {
-      const listed = await engine.list(key);
-      expanded.push(...listed.objects.map((o) => o.key));
-      if (!listed.objects.some((o) => o.key === key)) expanded.push(key);
+      let cursor;
+      do {
+        const listed = await engine.list(key, { limit: 1e3, cursor });
+        for (const o of listed.objects) {
+          expanded.push(o.key);
+        }
+        cursor = listed.truncated ? listed.cursor : void 0;
+      } while (cursor);
+      if (!expanded.includes(key)) expanded.push(key);
     } else {
       expanded.push(key);
     }
@@ -4875,6 +5000,7 @@ filesRoutes.post("/batch-delete", async (c) => {
   for (let i = 0; i < expanded.length; i += batchSize) {
     await engine.delete(expanded.slice(i, i + batchSize));
   }
+  c.executionCtx.waitUntil(clearFileCacheBatch(c.env, backend, keys));
   return c.json({ ok: true, deleted: expanded.length });
 });
 filesRoutes.post("/move", async (c) => {
@@ -4884,16 +5010,45 @@ filesRoutes.post("/move", async (c) => {
   if (!keys?.length || !targetPath) return c.json({ error: "no keys or target" }, 400);
   assertValidKeys(keys);
   for (const key of keys) {
-    if (key.endsWith("/")) continue;
-    const obj = await engine.get(key);
-    if (!obj) continue;
-    const head = await engine.head(key);
-    const contentType = head?.contentType || "application/octet-stream";
-    const filename = key.split("/").pop() || key;
-    const newKey = await uniqueKey(engine, targetPath, filename);
-    await engine.put(newKey, await obj.arrayBuffer(), { contentType });
-    await engine.delete(key);
+    if (key.endsWith("/")) {
+      const folderName = key.slice(0, -1).split("/").pop();
+      if (!folderName) continue;
+      const targetFolder = targetPath + folderName + "/";
+      let cursor;
+      const allObjects = [];
+      do {
+        const listed = await engine.list(key, { cursor });
+        for (const o of listed.objects) {
+          allObjects.push(o.key);
+        }
+        cursor = listed.truncated ? listed.cursor : void 0;
+      } while (cursor);
+      for (const objKey of allObjects) {
+        const relativePath = objKey.substring(key.length);
+        const newKey = targetFolder + relativePath;
+        const fileObj = await engine.get(objKey);
+        if (!fileObj) continue;
+        const head = await engine.head(objKey);
+        const contentType = head?.contentType || "application/octet-stream";
+        await engine.put(newKey, await fileObj.arrayBuffer(), { contentType });
+        await engine.delete(objKey);
+      }
+      await engine.delete(key).catch(() => {
+      });
+      await engine.put(targetFolder, "", { contentType: "application/x-directory" }).catch(() => {
+      });
+    } else {
+      const obj = await engine.get(key);
+      if (!obj) continue;
+      const head = await engine.head(key);
+      const contentType = head?.contentType || "application/octet-stream";
+      const filename = key.split("/").pop() || key;
+      const newKey = await uniqueKey(engine, targetPath, filename);
+      await engine.put(newKey, await obj.arrayBuffer(), { contentType });
+      await engine.delete(key);
+    }
   }
+  c.executionCtx.waitUntil(clearFileCacheBatch(c.env, backend, [...keys, targetPath]));
   return c.json({ ok: true });
 });
 filesRoutes.get("/:key{.+}", async (c) => {
@@ -5157,6 +5312,7 @@ async function moderateAndCleanup(env, info) {
       try {
         const engine = await createStorageEngine(env);
         await engine.delete(info.key);
+        await clearFileCache(env, "", info.key);
       } catch (e) {
         console.error("Failed to delete moderated file:", e);
       }
@@ -5234,6 +5390,7 @@ uploadRoutes.post("/single", async (c) => {
       source: "dashboard"
     })
   );
+  c.executionCtx.waitUntil(clearFileCache(c.env, "", key));
   return c.json({ ok: true, key, name: file.name, s3: s3Ok });
 });
 uploadRoutes.post("/init", async (c) => {
@@ -5362,6 +5519,7 @@ uploadRoutes.post("/complete", async (c) => {
       source: "dashboard"
     })
   );
+  c.executionCtx.waitUntil(clearFileCache(c.env, "", key));
   return c.json({ ok: true, key: object.key, name });
 });
 uploadRoutes.post("/abort", async (c) => {
@@ -5739,40 +5897,14 @@ async function generatePresignedUrl(endpoint, bucket, region, accessKey, secretK
   const canonicalQS = rawParams.map(([k, v]) => encodeURIComponent(k) + "=" + encodeURIComponent(v)).join("&");
   const canonicalUri = pathStyle ? "/" + bucket + encodedKey : encodedKey;
   const canonicalRequest = ["GET", canonicalUri, canonicalQS, "host:" + host + "\n", "host", "UNSIGNED-PAYLOAD"].join("\n");
-  const stringToSign = ["AWS4-HMAC-SHA256", amzDate2, credentialScope, await sha256Hex3(canonicalRequest)].join("\n");
-  const signingKey = await getSigningKey2(secretKey, dateStamp, region, "s3");
-  const signature = await hmacHex2(signingKey, stringToSign);
+  const stringToSign = ["AWS4-HMAC-SHA256", amzDate2, credentialScope, await sha256Hex2(canonicalRequest)].join("\n");
+  const signingKey = await getSigningKey(secretKey, dateStamp, region, "s3");
+  const signature = await hmacHex(signingKey, stringToSign);
   const urlParams = rawParams.map(([k, v]) => encodeURIComponent(k) + "=" + encodeURIComponent(v)).join("&");
   const urlPath = pathStyle ? "/" + bucket + encodedKey : encodedKey;
   return "https://" + host + urlPath + "?" + urlParams + "&X-Amz-Signature=" + signature;
 }
 __name(generatePresignedUrl, "generatePresignedUrl");
-async function sha256Hex3(data) {
-  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(data));
-  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-__name(sha256Hex3, "sha256Hex");
-async function hmacBytes2(key, data) {
-  const k = key instanceof Uint8Array ? await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]) : key;
-  return new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(data)));
-}
-__name(hmacBytes2, "hmacBytes");
-async function hmacHex2(key, data) {
-  return [...await hmacBytes2(key, data)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-__name(hmacHex2, "hmacHex");
-async function getSigningKey2(secret, date, region, service) {
-  const enc = new TextEncoder();
-  const kSecret = await crypto.subtle.importKey("raw", enc.encode("AWS4" + secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const kDate = await hmacBytes2(kSecret, date);
-  const kDateKey = await crypto.subtle.importKey("raw", kDate, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const kRegion = await hmacBytes2(kDateKey, region);
-  const kRegionKey = await crypto.subtle.importKey("raw", kRegion, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const kService = await hmacBytes2(kRegionKey, service);
-  const kServiceKey = await crypto.subtle.importKey("raw", kService, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  return await hmacBytes2(kServiceKey, "aws4_request");
-}
-__name(getSigningKey2, "getSigningKey");
 
 // src/upload-keys.ts
 var UPLOAD_KEYS_PREFIX = "_upload_keys/";
@@ -5928,6 +6060,7 @@ uploadPublicRoutes.post("/single", async (c) => {
       source: uploadKeyId ? "upload-key" : "public"
     })
   );
+  c.executionCtx.waitUntil(clearFileCache(c.env, "", key2));
   return c.json({ ok: true, key: key2, name: file.name, s3: s3Ok });
 });
 uploadPublicRoutes.post("/init", async (c) => {
@@ -6054,8 +6187,7 @@ uploadPublicRoutes.post("/complete", async (c) => {
     await meta.delete("_multipart/" + uploadId);
   }
   const name = key.split("/").pop() || key;
-  const mpData2 = await meta.get("_multipart/" + uploadId).catch(() => null);
-  const filename = mpData2?.filename || name;
+  const filename = mpMeta?.filename || name;
   const contentType = getContentType(filename);
   c.executionCtx.waitUntil(
     writeUploadLog(c.env, {
@@ -6082,6 +6214,7 @@ uploadPublicRoutes.post("/complete", async (c) => {
       source: mpMeta?.source || "public"
     })
   );
+  c.executionCtx.waitUntil(clearFileCache(c.env, "", key));
   return c.json({ ok: true, key: object.key, name });
 });
 uploadPublicRoutes.post("/abort", async (c) => {
@@ -6190,8 +6323,12 @@ storageConfigRoutes.put("/backends/:name", async (c) => {
   if (body.sync !== void 0) backend.sync = body.sync;
   if (body.accessKey || body.secretKey) {
     const cred = data.credentials[name] || { accessKey: "", secretKey: "" };
-    if (body.accessKey) cred.accessKey = body.accessKey;
-    if (body.secretKey) cred.secretKey = body.secretKey;
+    if (body.accessKey && !body.accessKey.includes("***")) {
+      cred.accessKey = body.accessKey;
+    }
+    if (body.secretKey && !body.secretKey.includes("***") && body.secretKey !== "********") {
+      cred.secretKey = body.secretKey;
+    }
     data.credentials[name] = cred;
   }
   if (body.primary !== void 0) {
@@ -6248,9 +6385,9 @@ storageConfigRoutes.post("/test", async (c) => {
       signedHeaders,
       "UNSIGNED-PAYLOAD"
     ].join("\n");
-    const stringToSign = ["AWS4-HMAC-SHA256", amzDate2, credentialScope, await sha256Hex4(canonicalRequest)].join("\n");
-    const signingKey = await getSigningKey3(secretKey, dateStamp, region, "s3");
-    const signature = await hmacHex3(signingKey, stringToSign);
+    const stringToSign = ["AWS4-HMAC-SHA256", amzDate2, credentialScope, await sha256Hex2(canonicalRequest)].join("\n");
+    const signingKey = await getSigningKey(secretKey, dateStamp, region, "s3");
+    const signature = await hmacHex(signingKey, stringToSign);
     headers["Authorization"] = `AWS4-HMAC-SHA256 Credential=${accessKey}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
     const res = await fetch(`https://${host}${urlPath}`, {
       method: "GET",
@@ -6306,9 +6443,9 @@ storageConfigRoutes.post("/status", async (c) => {
       signedHeaders,
       "UNSIGNED-PAYLOAD"
     ].join("\n");
-    const stringToSign = ["AWS4-HMAC-SHA256", amzDate2, credentialScope, await sha256Hex4(canonicalRequest)].join("\n");
-    const signingKey = await getSigningKey3(cred.secretKey, dateStamp, backend.region, "s3");
-    const signature = await hmacHex3(signingKey, stringToSign);
+    const stringToSign = ["AWS4-HMAC-SHA256", amzDate2, credentialScope, await sha256Hex2(canonicalRequest)].join("\n");
+    const signingKey = await getSigningKey(cred.secretKey, dateStamp, backend.region, "s3");
+    const signature = await hmacHex(signingKey, stringToSign);
     headers["Authorization"] = `AWS4-HMAC-SHA256 Credential=${cred.accessKey}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
     const res = await fetch(`https://${host}${urlPath}`, { method: "GET", headers });
     const responseTime = Date.now() - start;
@@ -6327,32 +6464,138 @@ storageConfigRoutes.post("/status", async (c) => {
     return c.json({ ok: false, responseTime: Date.now() - start, error: e?.message || String(e) });
   }
 });
-async function sha256Hex4(data) {
-  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(data));
-  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-__name(sha256Hex4, "sha256Hex");
-async function hmacBytes3(key, data) {
-  const k = key instanceof Uint8Array ? await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]) : key;
-  return new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(data)));
-}
-__name(hmacBytes3, "hmacBytes");
-async function hmacHex3(key, data) {
-  return [...await hmacBytes3(key, data)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-__name(hmacHex3, "hmacHex");
-async function getSigningKey3(secret, date, region, service) {
-  const enc = new TextEncoder();
-  const kSecret = await crypto.subtle.importKey("raw", enc.encode("AWS4" + secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const kDate = await hmacBytes3(kSecret, date);
-  const kDateKey = await crypto.subtle.importKey("raw", kDate, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const kRegion = await hmacBytes3(kDateKey, region);
-  const kRegionKey = await crypto.subtle.importKey("raw", kRegion, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const kService = await hmacBytes3(kRegionKey, service);
-  const kServiceKey = await crypto.subtle.importKey("raw", kService, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  return await hmacBytes3(kServiceKey, "aws4_request");
-}
-__name(getSigningKey3, "getSigningKey");
+
+// src/picgo.ts
+var picgoRoutes = new Hono2();
+picgoRoutes.post("/", async (c) => {
+  const ip = c.req.header("CF-Connecting-IP") || "";
+  const authHeader = c.req.header("Authorization");
+  let uploadKeyId = "";
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    uploadKeyId = authHeader.slice(7).trim();
+  }
+  const body = await c.req.parseBody();
+  let file;
+  for (const key in body) {
+    if (body[key] instanceof File) {
+      file = body[key];
+      break;
+    }
+  }
+  if (!file) {
+    return c.json({ success: false, message: "\u672A\u627E\u5230\u4E0A\u4F20\u7684\u6587\u4EF6" }, 400);
+  }
+  if (!uploadKeyId) {
+    return c.json({ success: false, message: "\u672A\u63D0\u4F9B Authorization: Bearer <UploadKey>" }, 401);
+  }
+  const engine = await createStorageEngine(c.env);
+  const meta = createMetadataStore(c.env);
+  let path = "uploads/";
+  let keyLabel;
+  const keyData = await incrementUploadKeyUsage(meta, uploadKeyId);
+  if (!keyData) return c.json({ success: false, message: "\u4E0A\u4F20\u5BC6\u94A5(Upload Key)\u4E0D\u5B58\u5728" }, 404);
+  if (!keyData.active) return c.json({ success: false, message: "\u4E0A\u4F20\u5BC6\u94A5\u5DF2\u7981\u7528" }, 403);
+  if (new Date(keyData.expires) < /* @__PURE__ */ new Date()) return c.json({ success: false, message: "\u4E0A\u4F20\u5BC6\u94A5\u5DF2\u8FC7\u671F" }, 410);
+  path = keyData.path;
+  keyLabel = keyData.label;
+  if (!path.endsWith("/")) path += "/";
+  const key2 = await uniqueKey(engine, path, file.name);
+  const contentType = file.type || getContentType(file.name) || "application/octet-stream";
+  const buf = await file.arrayBuffer();
+  await engine.put(key2, buf, { contentType });
+  const s3Cfgs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
+  const syncCfgs = c.env.DRIVE ? s3Cfgs : s3Cfgs.slice(1);
+  let s3Ok = false;
+  for (const s3cfg of syncCfgs) {
+    try {
+      const ok = await s3PutObject(s3cfg, key2, buf, contentType);
+      if (ok) s3Ok = true;
+    } catch (e) {
+      console.error("S3 upload error:", e);
+    }
+  }
+  c.executionCtx.waitUntil(
+    writeUploadLog(c.env, {
+      key: key2,
+      name: file.name,
+      size: file.size,
+      ip,
+      country: c.req.header("CF-IPCountry") || "",
+      ua: c.req.header("User-Agent") || "",
+      referer: c.req.header("Referer") || "",
+      source: "picgo",
+      uploadKeyId,
+      uploadKeyLabel: keyLabel
+    })
+  );
+  c.executionCtx.waitUntil(
+    moderateAndCleanup(c.env, {
+      key: key2,
+      name: file.name,
+      size: file.size,
+      contentType,
+      ip,
+      ua: c.req.header("User-Agent") || "",
+      source: "picgo"
+    })
+  );
+  c.executionCtx.waitUntil(clearFileCache(c.env, "", key2));
+  let fileUrl = "";
+  if (c.env.R2_PUBLIC_DOMAIN) {
+    const encoded = key2.split("/").map(encodeURIComponent).join("/");
+    fileUrl = `https://${c.env.R2_PUBLIC_DOMAIN}/${encoded}`;
+  } else {
+    const origin = new URL(c.req.url).origin;
+    fileUrl = `${origin}/api/download/url/${key2}`;
+  }
+  return c.json({
+    success: true,
+    url: fileUrl,
+    key: key2,
+    name: file.name,
+    s3: s3Ok
+  });
+});
+
+// src/gallery.ts
+var galleryRoutes = new Hono2();
+galleryRoutes.get("/list", async (c) => {
+  try {
+    const engine = await createStorageEngine(c.env);
+    const prefix = "gallery/";
+    const listed = await engine.list(prefix, { limit: 1e3 });
+    const imageExts = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp"];
+    const files = listed.objects.filter((obj) => {
+      if (obj.key.endsWith("/") || obj.key.startsWith("_")) return false;
+      const lowerKey = obj.key.toLowerCase();
+      return imageExts.some((ext) => lowerKey.endsWith(ext));
+    }).map((obj) => ({
+      key: obj.key,
+      name: obj.key.replace(prefix, ""),
+      size: obj.size,
+      uploaded: obj.uploaded || (/* @__PURE__ */ new Date()).toISOString(),
+      contentType: obj.contentType || "image/jpeg"
+    })).sort((a, b) => new Date(b.uploaded).getTime() - new Date(a.uploaded).getTime());
+    let r2Domain = c.env.R2_PUBLIC_DOMAIN;
+    const origin = new URL(c.req.url).origin;
+    const items = files.map((f) => {
+      let url = "";
+      if (r2Domain) {
+        url = `https://${r2Domain}/${f.key.split("/").map(encodeURIComponent).join("/")}`;
+      } else {
+        url = `${origin}/api/download/url/${f.key}`;
+      }
+      return {
+        ...f,
+        url
+      };
+    });
+    return c.json({ ok: true, items });
+  } catch (err) {
+    console.error("Gallery list error:", err);
+    return c.json({ ok: false, error: "\u83B7\u53D6\u56FE\u5E93\u5931\u8D25" }, 500);
+  }
+});
 
 // src/html/dashboard.ts
 function renderDashboard(isDemo = false) {
@@ -6367,6 +6610,7 @@ function renderDashboard(isDemo = false) {
   <style>
     :root{--bg:#f5f5f7;--card:#fff;--border:#e5e5e5;--text:#111;--sub:#888;--accent:#111;--accent-fg:#fff;--hover:#f0f0f0;--row-hover:#f8f8fa;--shadow:0 2px 12px rgba(0,0,0,0.06);--fab-shadow:0 4px 16px rgba(0,0,0,0.15);--up-bg:#fff;--modal-shadow:0 8px 32px rgba(0,0,0,0.12)}
     [data-theme="dark"]{--bg:#09090b;--card:#18181b;--border:#27272a;--text:#fafafa;--sub:#71717a;--accent:#fafafa;--accent-fg:#18181b;--hover:#27272a;--row-hover:#1f1f23;--shadow:0 2px 12px rgba(0,0,0,0.3);--fab-shadow:0 4px 16px rgba(0,0,0,0.4);--up-bg:#18181b;--modal-shadow:0 8px 32px rgba(0,0,0,0.4)}
+    [data-theme="glass"]{--bg:transparent;--card:rgba(255,255,255,0.12);--border:rgba(255,255,255,0.22);--text:#fff;--sub:rgba(255,255,255,0.6);--accent:rgba(255,255,255,0.85);--accent-fg:#1a1a1a;--hover:rgba(255,255,255,0.1);--row-hover:rgba(255,255,255,0.06);--shadow:0 4px 24px rgba(0,0,0,0.15);--fab-shadow:0 8px 32px rgba(0,0,0,0.3);--up-bg:rgba(255,255,255,0.1);--modal-shadow:0 8px 40px rgba(0,0,0,0.3);--glass-blur:20px;--glass-border:1px solid rgba(255,255,255,0.25);--glass-highlight:inset 0 1px 0 rgba(255,255,255,0.3);--glass-surface:rgba(255,255,255,0.08);--glass-surface-hover:rgba(255,255,255,0.14);--glass-glow:0 0 30px rgba(0,0,0,0.1)}
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--text);background:var(--bg);transition:background .35s,color .35s}
     .layout{display:flex;height:100vh;overflow:hidden}
@@ -6659,10 +6903,235 @@ function renderDashboard(isDemo = false) {
     .sm-test-result.err{color:#ef4444;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.15)}
     .sm-test-result.testing{color:#f59e0b;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.15)}
     @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+
+    /* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+       LIQUID GLASS THEME \u2014 iOS 26 Style
+       Supports both Light & Dark modes!
+       \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
+    :root {
+      /* Light Glass Tokens (Starlight / Warm Silver - No Blue/Purple) */
+      --g-body-bg: radial-gradient(circle at 20% 20%, #ffffff 0%, #f7f5f0 35%, #ebe7de 70%, #dcd8cc 100%);
+      --g-surf-side: rgba(255,255,255,0.4);
+      --g-surf-top: rgba(255,255,255,0.5);
+      --g-surf-card: rgba(255,255,255,0.3);
+      --g-surf-card-hover: rgba(255,255,255,0.5);
+      --g-surf-modal: rgba(255,255,255,0.5);
+      --g-border: rgba(255,255,255,0.6);
+      --g-border-hover: rgba(255,255,255,0.8);
+      --g-text: #111;
+      --g-sub: rgba(0,0,0,0.6);
+      
+      --g-rim-strong: inset 0 0 0 1px rgba(255,255,255,0.9);
+      --g-rim-light: inset 0 0 0 1px rgba(255,255,255,0.6);
+      --g-rim-inner: inset 0 10px 20px rgba(255,255,255,0.4);
+      --g-rim-bot: inset 0 -12px 24px rgba(0,0,0,0.05);
+      --g-shadow-drop: 0 12px 32px rgba(0,0,0,0.1);
+      
+      --g-nav: rgba(0,0,0,0.5);
+      --g-nav-hover: rgba(0,0,0,0.8);
+      --g-nav-on-bg: rgba(255,255,255,0.6);
+      --g-nav-on-color: #000;
+      
+      --g-input-bg: rgba(255,255,255,0.4);
+      --g-input-border: rgba(255,255,255,0.8);
+      --g-input-ph: rgba(0,0,0,0.4);
+      --g-input-ring: 0 0 0 3px rgba(255,255,255,0.4);
+      
+      --g-btn-p: rgba(0,0,0,0.8);
+      --g-btn-p-hover: rgba(0,0,0,0.9);
+      --g-btn-p-text: #fff;
+    }
+
+    [data-theme="dark"] {
+      /* Dark Glass Tokens (Space Black / Titanium - No Blue/Purple) */
+      --g-body-bg: radial-gradient(circle at 20% 20%, #2c2c2e 0%, #1c1c1e 35%, #111111 70%, #000000 100%);
+      --g-surf-side: rgba(255,255,255,0.03);
+      --g-surf-top: rgba(255,255,255,0.02);
+      --g-surf-card: rgba(255,255,255,0.02);
+      --g-surf-card-hover: rgba(255,255,255,0.04);
+      --g-surf-modal: rgba(255,255,255,0.03);
+      --g-border: rgba(255,255,255,0.15);
+      --g-border-hover: rgba(255,255,255,0.25);
+      --g-text: #fff;
+      --g-sub: rgba(255,255,255,0.55);
+      
+      --g-rim-strong: inset 0 0 0 1px rgba(255,255,255,0.4);
+      --g-rim-light: inset 0 0 0 1px rgba(255,255,255,0.2);
+      --g-rim-inner: inset 0 10px 20px rgba(255,255,255,0.08);
+      --g-rim-bot: inset 0 -12px 24px rgba(0,0,0,0.2);
+      --g-shadow-drop: 0 12px 32px rgba(0,0,0,0.3);
+      
+      --g-nav: rgba(255,255,255,0.55);
+      --g-nav-hover: rgba(255,255,255,0.9);
+      --g-nav-on-bg: rgba(255,255,255,0.13);
+      --g-nav-on-color: #fff;
+      
+      --g-input-bg: rgba(255,255,255,0.07);
+      --g-input-border: rgba(255,255,255,0.15);
+      --g-input-ph: rgba(255,255,255,0.35);
+      --g-input-ring: 0 0 0 3px rgba(255,255,255,0.15);
+      
+      --g-btn-p: rgba(255,255,255,0.15);
+      --g-btn-p-hover: rgba(255,255,255,0.2);
+      --g-btn-p-text: #fff;
+    }
+
+    [data-glass="true"] { --text: var(--g-text); --sub: var(--g-sub); }
+
+    /* \u2500\u2500 Background wallpaper \u2500\u2500 */
+    [data-glass="true"] body{background:var(--g-body-bg);background-size:200% 200%;background-attachment:fixed;min-height:100vh;animation:g-bg-pan 20s ease-in-out infinite alternate}
+    @keyframes g-bg-pan{0%{background-position:0% 0%}100%{background-position:100% 100%}}
+    [data-glass="true"] .layout{position:relative;z-index:1}
+
+    /* \u2500\u2500 Liquid Glass surface mixin \u2500\u2500 */
+    [data-glass="true"] .side,
+    [data-glass="true"] .modal,
+    [data-glass="true"] .ac-card,
+    [data-glass="true"] .storage-card,
+    [data-glass="true"] .public-upload-card,
+    [data-glass="true"] .fab,
+    [data-glass="true"] .up-panel,
+    [data-glass="true"] #storage-modal>div{
+      backdrop-filter: blur(24px) saturate(1.5) url(#liquid-glass-edge);
+      -webkit-backdrop-filter: blur(24px) saturate(1.5) url(#liquid-glass-edge);
+    }
+
+    /* \u2500\u2500 Glass Sidebar \u2500\u2500 */
+    [data-glass="true"] .side{background:var(--g-surf-side);border-right:1px solid var(--g-border);box-shadow:inset -1px 0 0 var(--g-border),var(--g-shadow-drop)}
+    [data-glass="true"] .nav{color:var(--g-nav)}
+    [data-glass="true"] .nav:hover{background:var(--g-surf-card);color:var(--g-nav-hover)}
+    [data-glass="true"] .nav.on{background:var(--g-nav-on-bg);color:var(--g-nav-on-color);border:1px solid var(--g-border);box-shadow:var(--g-rim-light),0 2px 8px rgba(0,0,0,0.1)}
+    [data-glass="true"] .pill:hover{background:var(--g-surf-card)}
+    [data-glass="true"] .side-logo{color:var(--g-text)}
+
+    /* \u2500\u2500 Glass Topbar \u2500\u2500 */
+    [data-glass="true"] .topbar{background:var(--g-surf-top);backdrop-filter:blur(20px) saturate(1.4);-webkit-backdrop-filter:blur(20px) saturate(1.4);border-bottom:1px solid var(--g-border);box-shadow:var(--g-rim-strong),var(--g-rim-bot),var(--g-shadow-drop)}
+    [data-glass="true"] .search input{background:var(--g-input-bg);border:1px solid var(--g-input-border);color:var(--g-text)}
+    [data-glass="true"] .search input::placeholder{color:var(--g-input-ph)}
+    [data-glass="true"] .search input:focus{border-color:var(--g-border-hover);box-shadow:var(--g-input-ring)}
+    [data-glass="true"] .theme-btn,[data-glass="true"] .icon-btn{border-color:var(--g-border);color:var(--g-nav)}
+    [data-glass="true"] .theme-btn:hover,[data-glass="true"] .icon-btn:hover{background:var(--g-surf-card);border-color:var(--g-border-hover)}
+
+    /* \u2500\u2500 Glass Breadcrumbs & Backend Selector \u2500\u2500 */
+    [data-glass="true"] .breadcrumbs{border-bottom:1px solid var(--g-border);background:transparent}
+    [data-glass="true"] .breadcrumbs .bc-item:hover{background:var(--g-surf-card)}
+    [data-glass="true"] .backend-selector{border-bottom:1px solid var(--g-border);background:var(--g-surf-card)}
+    [data-glass="true"] .backend-selector select{background:var(--g-input-bg);border-color:var(--g-border);color:var(--g-text)}
+
+    /* \u2500\u2500 Glass File List \u2500\u2500 */
+    [data-glass="true"] .list-head{border-bottom:1px solid var(--g-border)}
+    [data-glass="true"] .row{border-bottom:1px solid var(--g-border)}
+    [data-glass="true"] .row:hover{background:var(--g-surf-card);box-shadow:var(--g-rim-light),0 2px 8px rgba(0,0,0,0.08);border-radius:10px;border-bottom-color:transparent}
+    [data-glass="true"] .sel-toolbar{background:var(--g-surf-side);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--g-border)}
+
+    /* \u2500\u2500 Glass Buttons \u2500\u2500 */
+    [data-glass="true"] .btn-p{background:var(--g-btn-p);color:var(--g-btn-p-text);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--g-border);box-shadow:var(--g-rim-strong),var(--g-rim-inner),var(--g-shadow-drop);border-radius:20px;transition:all .3s cubic-bezier(.34,1.56,.64,1)}
+    [data-glass="true"] .btn-p:hover{background:var(--g-btn-p-hover);box-shadow:var(--g-rim-strong),var(--g-rim-inner),var(--g-shadow-drop);transform:translateY(-2px) scale(1.02)}
+    [data-glass="true"] .btn-s{background:var(--g-surf-card);color:var(--g-text);border:1px solid var(--g-border)}
+    [data-glass="true"] .btn-s:hover{background:var(--g-surf-card-hover);border-color:var(--g-border-hover)}
+
+    /* \u2500\u2500 Glass FAB \u2500\u2500 */
+    [data-glass="true"] .fab{background:var(--g-surf-card);color:var(--g-text);border:1px solid var(--g-border);box-shadow:var(--g-rim-strong),var(--g-rim-inner),var(--g-rim-bot),var(--g-shadow-drop)}
+    [data-glass="true"] .fab:hover{background:var(--g-surf-card-hover);box-shadow:var(--g-rim-strong),var(--g-rim-inner),var(--g-rim-bot),var(--g-shadow-drop)}
+
+    /* \u2500\u2500 Glass Modal & Overlay \u2500\u2500 */
+    [data-glass="true"] .overlay{background:rgba(0,0,0,0.4);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+    [data-glass="true"] .modal{background:var(--g-surf-modal);border:1px solid var(--g-border);box-shadow:var(--g-rim-strong),var(--g-rim-inner),var(--g-rim-bot),var(--g-shadow-drop)}
+    [data-glass="true"] .modal input[type=text],[data-glass="true"] .modal input[type=password],[data-glass="true"] .modal select{background:var(--g-input-bg);border-color:var(--g-border);color:var(--g-text)}
+    [data-glass="true"] .modal input:focus,[data-glass="true"] .modal select:focus{border-color:var(--g-border-hover);box-shadow:var(--g-input-ring)}
+
+    /* \u2500\u2500 Glass Cards \u2500\u2500 */
+    [data-glass="true"] .ac-card,[data-glass="true"] .storage-card,[data-glass="true"] .public-upload-card{background:var(--g-surf-card);border:1px solid var(--g-border);box-shadow:var(--g-rim-strong),var(--g-rim-inner),var(--g-shadow-drop)}
+    [data-glass="true"] .ac-card:hover,[data-glass="true"] .storage-card:hover{border-color:var(--g-border-hover);box-shadow:var(--g-rim-strong),var(--g-rim-inner),var(--g-shadow-drop);background:var(--g-surf-card-hover)}
+
+    /* \u2500\u2500 Glass Log Cards \u2500\u2500 */
+    [data-glass="true"] .log-card{background:var(--g-surf-card);border:1px solid var(--g-border);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:var(--g-rim-light)}
+    [data-glass="true"] .log-card:hover{background:var(--g-surf-card-hover);border-color:var(--g-border-hover);box-shadow:var(--g-rim-light),0 4px 16px rgba(0,0,0,0.1)}
+    [data-glass="true"] .dl-stat{background:var(--g-surf-card);border:1px solid var(--g-border);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--g-rim-light)}
+
+    /* \u2500\u2500 Glass Upload Panel \u2500\u2500 */
+    [data-glass="true"] .up-panel{background:var(--g-surf-side);border:1px solid var(--g-border);border-bottom:none;box-shadow:var(--g-rim-strong),var(--g-rim-inner),var(--g-shadow-drop)}
+    [data-glass="true"] .up-head{border-bottom:1px solid var(--g-border)}
+    [data-glass="true"] .up-item{border-bottom:1px solid var(--g-border)}
+    [data-glass="true"] .up-bar{background:var(--g-surf-card)}
+    [data-glass="true"] .up-bar .fl{background:linear-gradient(90deg,rgba(255,255,255,0.8),rgba(255,255,255,0.4))}
+
+    /* \u2500\u2500 Glass Drop zone \u2500\u2500 */
+    [data-glass="true"] .drop{background:var(--g-surf-card);border-color:var(--g-border-hover)}
+
+    /* \u2500\u2500 Glass Table \u2500\u2500 */
+    [data-glass="true"] .dl-table-wrap{background:var(--g-surf-card);border-color:var(--g-border)}
+    [data-glass="true"] .dl-table thead{background:var(--g-surf-card)}
+    [data-glass="true"] .dl-table th{border-bottom-color:var(--g-border)}
+    [data-glass="true"] .dl-table td{border-bottom-color:var(--g-border)}
+    [data-glass="true"] .dl-table tr:hover{background:var(--g-surf-card-hover)}
+
+    /* \u2500\u2500 Glass Form inputs \u2500\u2500 */
+    [data-glass="true"] .form-group input,[data-glass="true"] .form-group select{background:var(--g-input-bg);border-color:var(--g-border);color:var(--g-text)}
+    [data-glass="true"] .form-group input:focus,[data-glass="true"] .form-group select:focus{border-color:var(--g-border-hover);box-shadow:var(--g-input-ring)}
+    [data-glass="true"] .form-group input::placeholder{color:var(--g-input-ph)}
+
+    /* \u2500\u2500 Glass Storage Modal \u2500\u2500 */
+    [data-glass="true"] #storage-modal>div{background:var(--g-surf-modal);border:1px solid var(--g-border);box-shadow:var(--g-rim-strong),var(--g-rim-inner),var(--g-shadow-drop)}
+    [data-glass="true"] #storage-modal>div>div:first-child{border-bottom-color:var(--g-border)}
+
+    /* \u2500\u2500 Glass test results \u2500\u2500 */
+    [data-glass="true"] .sm-test-result.ok{background:rgba(16,185,129,0.1);border-color:rgba(16,185,129,0.2)}
+    [data-glass="true"] .sm-test-result.err{background:rgba(239,68,68,0.1);border-color:rgba(239,68,68,0.2)}
+    [data-glass="true"] .sm-test-result.testing{background:rgba(245,158,11,0.1);border-color:rgba(245,158,11,0.2)}
+
+    /* \u2500\u2500 Glass scrollbar \u2500\u2500 */
+    [data-glass="true"] ::-webkit-scrollbar{width:6px;height:6px}
+    [data-glass="true"] ::-webkit-scrollbar-track{background:transparent}
+    [data-glass="true"] ::-webkit-scrollbar-thumb{background:var(--g-border);border-radius:3px}
+    [data-glass="true"] ::-webkit-scrollbar-thumb:hover{background:var(--g-border-hover)}
+
+    /* \u2500\u2500 Glass misc \u2500\u2500 */
+    [data-glass="true"] #ac-hint{background:var(--g-surf-card);border-color:var(--g-border)}
+    [data-glass="true"] .demo-banner{background:var(--g-surf-card);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:var(--g-text);text-shadow:0 1px 2px rgba(255,255,255,0.4)}
+    [data-theme="dark"][data-glass="true"] .demo-banner{text-shadow:0 1px 2px rgba(0,0,0,0.4)}
+    [data-glass="true"] .side-overlay.on{background:rgba(0,0,0,0.3);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+    [data-glass="true"] .log-search input{background:var(--g-input-bg);border-color:var(--g-border);color:var(--g-text)}
+    [data-glass="true"] .log-search input::placeholder{color:var(--g-input-ph)}
+    [data-glass="true"] .log-search input:focus{border-color:var(--g-border-hover);background:var(--g-surf-card)}
+    [data-glass="true"] .batch-share-list{border-color:var(--g-border)}
+    [data-glass="true"] .batch-share-item{border-bottom-color:var(--g-border)}
+    [data-glass="true"] .ac button:hover{background:rgba(255,255,255,0.08)}
+    [data-glass="true"] input[type=checkbox]{accent-color:rgba(200,200,200,0.9)}
+    [data-glass="true"] .mod-badge.deleted{background:rgba(239,68,68,0.12)}
+    [data-glass="true"] .mod-badge.racy{background:rgba(245,158,11,0.12)}
+    [data-glass="true"] .mod-badge.kept{background:rgba(16,185,129,0.12)}
+    [data-glass="true"] .bg-accent{background:rgba(255,255,255,0.05);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
   </style>
 </head>
 <body${isDemo ? ' class="demo"' : ""}>
   ${isDemo ? '<div class="demo-banner">\u{1F512} \u6F14\u793A\u73AF\u5883 \u2014 \u6587\u4EF6\u4E0A\u4F20\u5DF2\u7981\u7528\uFF0C\u4EC5\u53EF\u6D4F\u89C8\u548C\u4E0B\u8F7D</div>' : ""}
+  <!-- SVG Liquid Glass filter: Edge-only Refraction -->
+  <svg id="liquid-glass-svg" width="0" height="0" style="position:absolute;pointer-events:none">
+    <defs>
+      <filter id="liquid-glass-edge" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+        <!-- 1. Generate smooth fluid noise for displacement -->
+        <feTurbulence type="fractalNoise" baseFrequency="0.012 0.012" numOctaves="2" seed="5" result="noise"/>
+        
+        <!-- 2. Displace the entire background (this will be our refracted edge) -->
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="25" xChannelSelector="R" yChannelSelector="G" result="displaced"/>
+        <feGaussianBlur in="displaced" stdDeviation="2" result="displacedBlurred"/>
+
+        <!-- 3. Isolate the center using SourceAlpha (bounding box of the element) eroded by 6px -->
+        <feMorphology in="SourceAlpha" operator="erode" radius="6" result="innerMask"/>
+        <feGaussianBlur in="innerMask" stdDeviation="3" result="innerMaskSoft"/>
+        
+        <!-- 4. Extract the undisplaced center -->
+        <feComposite in="SourceGraphic" in2="innerMaskSoft" operator="in" result="center"/>
+
+        <!-- 5. Merge: Place the sharp undisplaced center over the distorted edge -->
+        <feMerge>
+          <feMergeNode in="displacedBlurred"/>
+          <feMergeNode in="center"/>
+        </feMerge>
+      </filter>
+    </defs>
+  </svg>
   <div class="side-overlay" id="side-overlay" onclick="closeSide()"></div>
   <div class="layout">
     <nav class="side" id="side">
@@ -6727,6 +7196,7 @@ function renderDashboard(isDemo = false) {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
           </button>
           <button class="theme-btn" onclick="toggleTheme()" title="\u5916\u89C2" id="theme-btn">\u{1F319}</button>
+          <button class="theme-btn" onclick="toggleGlass()" title="\u6DB2\u6001\u73BB\u7483" id="glass-btn" style="font-size:13px;letter-spacing:0.5px">\u{1F48E}</button>
         </div>
       </header>
 
@@ -6866,6 +7336,10 @@ function renderDashboard(isDemo = false) {
             <div class="form-group">
               <label>\u5B58\u50A8\u6876 <span style="color:var(--sub);font-size:11px">(Bucket)</span></label>
               <input type="text" id="sm-bucket" placeholder="my-bucket">
+            </div>
+            <div class="form-group" id="sm-account-id-group" style="display:none">
+              <label>Account ID <span style="color:var(--sub);font-size:11px">(Cloudflare \u8D26\u53F7 ID)</span></label>
+              <input type="text" id="sm-accountid" placeholder="Cloudflare Account ID">
             </div>
             <div class="form-group">
               <label>Access Key</label>
@@ -7020,10 +7494,11 @@ function renderDashboard(isDemo = false) {
     let selectedKeys=new Set();
     let currentBackend='';
 
-    // Theme
-    function initTheme(){var t=localStorage.getItem('iodrive_theme')||'light';if(t==='dark')document.documentElement.setAttribute('data-theme','dark');updThemeUI()}
-    function toggleTheme(){var d=document.documentElement.getAttribute('data-theme')==='dark';if(d){document.documentElement.removeAttribute('data-theme');localStorage.setItem('iodrive_theme','light')}else{document.documentElement.setAttribute('data-theme','dark');localStorage.setItem('iodrive_theme','dark')}updThemeUI()}
-    function updThemeUI(){var d=document.documentElement.getAttribute('data-theme')==='dark';document.getElementById('theme-btn').textContent=d?'\u2600\uFE0F':'\u{1F319}'}
+    // Theme (3-state: light / dark / glass)
+    function initTheme(){var t=localStorage.getItem('iodrive_theme')||'light';var g=localStorage.getItem('iodrive_glass');if(t==='dark'){document.documentElement.setAttribute('data-theme','dark')}else{document.documentElement.setAttribute('data-theme','light')}if(g==='true'){document.documentElement.setAttribute('data-glass','true')}updThemeUI()}
+    function toggleTheme(){var cur=document.documentElement.getAttribute('data-theme')||'light';if(cur==='dark'){document.documentElement.setAttribute('data-theme','light');localStorage.setItem('iodrive_theme','light')}else{document.documentElement.setAttribute('data-theme','dark');localStorage.setItem('iodrive_theme','dark')}updThemeUI()}
+    function toggleGlass(){var g=document.documentElement.getAttribute('data-glass');if(g==='true'){document.documentElement.removeAttribute('data-glass');localStorage.setItem('iodrive_glass','false')}else{document.documentElement.setAttribute('data-glass','true');localStorage.setItem('iodrive_glass','true')}updThemeUI()}
+    function updThemeUI(){var cur=document.documentElement.getAttribute('data-theme')||'light';var g=document.documentElement.getAttribute('data-glass');var tb=document.getElementById('theme-btn');var gb=document.getElementById('glass-btn');if(tb){if(cur==='dark'){tb.textContent='\u2600\uFE0F'}else{tb.textContent='\u{1F319}'}}if(gb){if(g==='true'){gb.style.background='rgba(128,128,128,0.2)';gb.style.borderColor='rgba(128,128,128,0.4)';gb.style.boxShadow='inset 0 0 0 1px rgba(255,255,255,0.2)'}else{gb.style.background='';gb.style.borderColor='';gb.style.boxShadow=''}}}
     initTheme();
 
     // ESC \u952E\u5173\u95ED\u5F39\u7A97
@@ -7678,6 +8153,7 @@ function renderDashboard(isDemo = false) {
       document.getElementById('sm-name').value='';document.getElementById('sm-name').disabled=false;
       document.getElementById('sm-endpoint').value='';
       document.getElementById('sm-bucket').value='';
+      document.getElementById('sm-accountid').value='';
       document.getElementById('sm-region').value='';
       document.getElementById('sm-accesskey').value='';
       document.getElementById('sm-secretkey').value='';
@@ -7725,8 +8201,11 @@ function renderDashboard(isDemo = false) {
         if(!epField.value.trim()&&preset.endpoint)epField.value=preset.endpoint;
         if(!rgField.value.trim()&&preset.regions&&preset.regions.length>0)rgField.value=preset.regions[0];
       }
-      // \u66F4\u65B0\u5360\u4F4D\u7B26\u4E3A provider \u9884\u8BBE\u7684\u63D0\u793A
-      if(preset.endpointPlaceholder)epField.placeholder=preset.endpointPlaceholder;
+      // \u66F4\u65B0\u5360\u4F4D\u7B26\u4E3A provider \u9884\u8BBE\u7684\u63D0\u793A\uFF0C\u9632\u6B62\u6B8B\u7559\u4E0A\u4E00\u6B21\u7684\u72B6\u6001
+      epField.placeholder=preset.endpointPlaceholder||preset.endpoint||'s3.amazonaws.com';
+      // \u52A8\u6001\u663E\u793A\u6216\u9690\u85CF Cloudflare Account ID \u8F93\u5165\u6846
+      var accGroup=document.getElementById('sm-account-id-group');
+      if(accGroup)accGroup.style.display=p==='r2'?'block':'none';
     }
 
     async function editStorageBackend(name){
@@ -7747,6 +8226,22 @@ function renderDashboard(isDemo = false) {
       document.getElementById('sm-sync').checked=b.sync!==false;
       document.getElementById('sm-test-result').className='sm-test-result';
       document.getElementById('sm-save-btn').textContent='\u66F4\u65B0';document.getElementById('sm-save-btn').disabled=false;
+      
+      // \u52A8\u6001\u663E\u793A\u6216\u9690\u85CF Cloudflare Account ID \u8F93\u5165\u6846\u5E76\u586B\u5145\u503C
+      var accGroup=document.getElementById('sm-account-id-group');
+      if(b.provider==='r2'){
+        if(accGroup)accGroup.style.display='block';
+        if(b.endpoint){
+          var match=b.endpoint.match(/^([^.]+).r2.cloudflarestorage.com$/);
+          document.getElementById('sm-accountid').value=match?match[1]:'';
+        }else{
+          document.getElementById('sm-accountid').value='';
+        }
+      }else{
+        if(accGroup)accGroup.style.display='none';
+        document.getElementById('sm-accountid').value='';
+      }
+
       // \u6298\u53E0\u9AD8\u7EA7\u9009\u9879
       document.getElementById('sm-adv-options').classList.remove('open');
       document.getElementById('sm-adv-arrow').textContent='\u25B6';
@@ -7755,9 +8250,9 @@ function renderDashboard(isDemo = false) {
       credHint.style.display='block';
       if(b.hasCredentials){credHint.style.color='#10b981';credHint.textContent='\u{1F511} \u5DF2\u914D\u7F6E\u5BC6\u94A5\uFF08\u7559\u7A7A\u5219\u4FDD\u6301\u4E0D\u53D8\uFF09'}
       else{credHint.style.color='#ef4444';credHint.textContent='\u26A0\uFE0F \u672A\u914D\u7F6E\u5BC6\u94A5\uFF0C\u8BF7\u586B\u5199'}
-      // \u66F4\u65B0 provider \u5360\u4F4D\u7B26
+      // \u66F4\u65B0 provider \u5360\u4F4D\u7B26\uFF0C\u9632\u6B62\u6B8B\u7559\u4E0A\u4E00\u6B21\u7684\u72B6\u6001
       var preset=PROVIDER_PRESETS[b.provider];
-      if(preset&&preset.endpointPlaceholder)document.getElementById('sm-endpoint').placeholder=preset.endpointPlaceholder;
+      if(preset)document.getElementById('sm-endpoint').placeholder=preset.endpointPlaceholder||preset.endpoint||'s3.amazonaws.com';
       document.getElementById('storage-modal').style.display='flex';
     }
 
@@ -7778,6 +8273,22 @@ function renderDashboard(isDemo = false) {
       var preset=PROVIDER_PRESETS[provider];
       if(!endpoint&&preset&&preset.endpoint)endpoint=preset.endpoint;
       if(!region&&preset&&preset.regions&&preset.regions.length>0)region=preset.regions[0];
+
+      // \u81EA\u52A8\u66FF\u6362 <region> \u5360\u4F4D\u7B26
+      if(endpoint&&region){
+        endpoint=endpoint.replace('<region>',region);
+      }
+
+      // \u5982\u679C\u662F r2\uFF0C\u66FF\u6362 <account_id> \u5360\u4F4D\u7B26
+      if(provider==='r2'){
+        var accountId=document.getElementById('sm-accountid').value.trim();
+        if(accountId){
+          endpoint=endpoint.replace('<account_id>',accountId);
+        }else if(endpoint.includes('<account_id>')){
+          alert('\u8BF7\u586B\u5199 Cloudflare Account ID');
+          return;
+        }
+      }
 
       if(!name||!endpoint||!bucket||!region){alert('\u8BF7\u586B\u5199\u6240\u6709\u5FC5\u586B\u5B57\u6BB5');return}
       if(!_editingName&&(!accessKey||!secretKey)){alert('\u8BF7\u586B\u5199 Access Key \u548C Secret Key');return}
@@ -7814,9 +8325,31 @@ function renderDashboard(isDemo = false) {
       var region=document.getElementById('sm-region').value.trim();
       var accessKey=document.getElementById('sm-accesskey').value.trim();
       var secretKey=document.getElementById('sm-secretkey').value.trim();
+      var provider=document.getElementById('sm-provider').value;
+
+      // \u81EA\u52A8\u4ECE provider \u9884\u8BBE\u8865\u5168 endpoint \u548C region
+      var preset=PROVIDER_PRESETS[provider];
+      if(!endpoint&&preset&&preset.endpoint)endpoint=preset.endpoint;
+      if(!region&&preset&&preset.regions&&preset.regions.length>0)region=preset.regions[0];
+
+      // \u81EA\u52A8\u66FF\u6362 <region> \u5360\u4F4D\u7B26
+      if(endpoint&&region){
+        endpoint=endpoint.replace('<region>',region);
+      }
+
+      // \u5982\u679C\u662F r2\uFF0C\u66FF\u6362 <account_id> \u5360\u4F4D\u7B26
+      if(provider==='r2'){
+        var accountId=document.getElementById('sm-accountid').value.trim();
+        if(accountId){
+          endpoint=endpoint.replace('<account_id>',accountId);
+        }else if(endpoint.includes('<account_id>')){
+          alert('\u8BF7\u586B\u5199 Cloudflare Account ID');
+          return;
+        }
+      }
+
       if(!endpoint||!bucket||!region||!accessKey||!secretKey){alert('\u8BF7\u586B\u5199\u6240\u6709\u5B57\u6BB5\u540E\u518D\u6D4B\u8BD5');return}
 
-      var provider=document.getElementById('sm-provider').value;
       var pathStyle=PROVIDER_PRESETS[provider]?PROVIDER_PRESETS[provider].pathStyle:false;
 
       var btn=document.getElementById('sm-test-btn');
@@ -7945,8 +8478,8 @@ function renderDashboard(isDemo = false) {
         var action=e.action==='deleted'?'deleted':(e.label==='racy'?'racy':'kept');
         var actionText=e.action==='deleted'?'\u5DF2\u5220\u9664':(e.label==='racy'?'\u4FDD\u7559(racy)':'\u4FDD\u7559(safe)');
         return '<div class="log-item">'+
-          '<div class="log-main"><div class="log-name">'+escapeHtml(e.name||e.key)+'</div>'+
-          '<div class="log-meta">'+time+' \xB7 '+escapeHtml(e.ip||'-')+' \xB7 '+(e.provider||'')+' \xB7 adult='+(e.scores?.adult||0).toFixed(2)+' racy='+(e.scores?.racy||0).toFixed(2)+'</div></div>'+
+          '<div class="log-main"><div class="log-name">'+esc(e.name||e.key)+'</div>'+
+          '<div class="log-meta">'+time+' \xB7 '+esc(e.ip||'-')+' \xB7 '+(e.provider||'')+' \xB7 adult='+(e.scores?.adult||0).toFixed(2)+' racy='+(e.scores?.racy||0).toFixed(2)+'</div></div>'+
           '<div class="log-actions"><span class="mod-badge '+action+'">'+actionText+'</span></div>'+
         '</div>';
       }).join('');
@@ -7964,6 +8497,182 @@ function renderDashboard(isDemo = false) {
 </html>`;
 }
 __name(renderDashboard, "renderDashboard");
+
+// src/html/gallery.ts
+function renderGallery() {
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ioDrive \u56FE\u5E93</title>
+  <style>
+    :root {
+      --bg: #f5f5f7;
+      --card: #fff;
+      --text: #111;
+      --sub: #888;
+      --hover: rgba(0,0,0,0.05);
+      --border: #e5e5e5;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #09090b;
+        --card: #18181b;
+        --text: #fafafa;
+        --sub: #71717a;
+        --hover: rgba(255,255,255,0.1);
+        --border: #27272a;
+      }
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 40px 20px; }
+    .header { max-width: 1200px; margin: 0 auto 30px; text-align: center; }
+    .header h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+    .header p { color: var(--sub); font-size: 14px; margin-top: 8px; }
+    
+    .gallery-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      column-count: 4;
+      column-gap: 16px;
+    }
+    @media (max-width: 1024px) { .gallery-container { column-count: 3; } }
+    @media (max-width: 768px) { .gallery-container { column-count: 2; } }
+    @media (max-width: 480px) { .gallery-container { column-count: 1; } }
+
+    .gallery-item {
+      break-inside: avoid;
+      margin-bottom: 16px;
+      background: var(--card);
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      transition: transform 0.2s, box-shadow 0.2s;
+      cursor: pointer;
+      position: relative;
+    }
+    .gallery-item:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+    }
+    .gallery-item img {
+      width: 100%;
+      display: block;
+      object-fit: cover;
+      background: var(--hover);
+      min-height: 100px;
+    }
+    .gallery-item .info {
+      padding: 12px;
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .gallery-item .name {
+      color: var(--text);
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 70%;
+    }
+    .gallery-item .size {
+      color: var(--sub);
+      font-size: 12px;
+    }
+
+    /* Lightbox */
+    .lightbox {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.9);
+      display: none; align-items: center; justify-content: center;
+      z-index: 1000;
+      opacity: 0; transition: opacity 0.3s;
+    }
+    .lightbox.active { display: flex; opacity: 1; }
+    .lightbox img { max-width: 90%; max-height: 90vh; border-radius: 8px; box-shadow: 0 4px 24px rgba(0,0,0,0.5); }
+    .lightbox-close { position: absolute; top: 20px; right: 20px; color: #fff; font-size: 30px; cursor: pointer; opacity: 0.7; }
+    .lightbox-close:hover { opacity: 1; }
+    
+    .loading { text-align: center; color: var(--sub); padding: 40px; font-size: 14px; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>\u{1F4F7} \u516C\u5171\u56FE\u5E93</h1>
+    <p>\u5C55\u793A /gallery \u76EE\u5F55\u4E0B\u7684\u6240\u6709\u516C\u5F00\u56FE\u7247</p>
+  </div>
+
+  <div id="loading" class="loading">\u52A0\u8F7D\u4E2D...</div>
+  <div id="gallery" class="gallery-container"></div>
+
+  <div id="lightbox" class="lightbox">
+    <div class="lightbox-close" onclick="closeLightbox()">&times;</div>
+    <img id="lightbox-img" src="" alt="">
+  </div>
+
+  <script>
+    function formatSize(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024, sizes = ['B', 'KB', 'MB', 'GB'], i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function openLightbox(url) {
+      document.getElementById('lightbox-img').src = url;
+      const lb = document.getElementById('lightbox');
+      lb.style.display = 'flex';
+      setTimeout(() => lb.classList.add('active'), 10);
+    }
+    function closeLightbox() {
+      const lb = document.getElementById('lightbox');
+      lb.classList.remove('active');
+      setTimeout(() => {
+        lb.style.display = 'none';
+        document.getElementById('lightbox-img').src = '';
+      }, 300);
+    }
+
+    async function loadGallery() {
+      try {
+        const res = await fetch('/api/gallery/list');
+        const data = await res.json();
+        
+        document.getElementById('loading').style.display = 'none';
+        const container = document.getElementById('gallery');
+        
+        if (!data.ok || !data.items || data.items.length === 0) {
+          container.innerHTML = '<div style="text-align:center;color:var(--sub);grid-column:1/-1">\u7A7A\u7A7A\u5982\u4E5F~</div>';
+          return;
+        }
+
+        let html = '';
+        data.items.forEach(item => {
+          html += \`
+            <div class="gallery-item" onclick="openLightbox('\${item.url}')">
+              <img src="\${item.url}" loading="lazy" alt="\${item.name}">
+              <div class="info">
+                <span class="name" title="\${item.name}">\${item.name}</span>
+                <span class="size">\${formatSize(item.size)}</span>
+              </div>
+            </div>
+          \`;
+        });
+        container.innerHTML = html;
+      } catch (e) {
+        document.getElementById('loading').innerText = '\u52A0\u8F7D\u5931\u8D25\uFF0C\u8BF7\u5237\u65B0\u91CD\u8BD5';
+      }
+    }
+
+    loadGallery();
+  <\/script>
+</body>
+</html>`;
+}
+__name(renderGallery, "renderGallery");
 
 // src/html/login.ts
 function renderLogin(siteKey) {
@@ -9473,6 +10182,7 @@ webdavRoutes.on("COPY", "*", async (c) => {
   await engine.put(destKey, await srcObj.arrayBuffer(), {
     contentType: srcObj.httpMetadata?.contentType
   });
+  c.executionCtx.waitUntil(clearFileCache(c.env, "", destKey));
   return new Response(null, { status: 201, headers: { "Location": "/dav/" + destKey } });
 });
 webdavRoutes.on("PROPPATCH", "*", async (c) => {
@@ -9550,6 +10260,7 @@ randomRoutes.get("/", async (c) => {
         });
         if (all.length >= 1e3) break;
       }
+      if (all.length >= 1e3) break;
       cursor = listed.truncated ? listed.cursor : void 0;
     } while (cursor);
     entries = all;
@@ -9643,17 +10354,22 @@ moderationAdminRoutes.put("/config", async (c) => {
       return c.json({ error: "nsfwjs \u9700\u8981 apiPath" }, 400);
     }
   }
+  const meta = createMetadataStore(c.env);
+  const existingCfg = await meta.get(MODERATION_CONFIG_KEY2);
+  let apiKey = body.apiKey;
+  if (apiKey && apiKey.startsWith("***")) {
+    apiKey = existingCfg?.apiKey;
+  }
   const cfg = {
     enabled: !!body.enabled,
     provider: body.provider,
-    apiKey: body.apiKey,
+    apiKey,
     apiPath: body.apiPath,
     thresholds: body.thresholds,
     fileTypes: body.fileTypes?.length ? body.fileTypes : DEFAULT_CONFIG.fileTypes,
     maxSize: body.maxSize || DEFAULT_CONFIG.maxSize,
     updatedAt: (/* @__PURE__ */ new Date()).toISOString()
   };
-  const meta = createMetadataStore(c.env);
   await meta.put(MODERATION_CONFIG_KEY2, cfg);
   return c.json({ ok: true, config: { ...cfg, apiKey: cfg.apiKey ? "***" + cfg.apiKey.slice(-4) : "" } });
 });
@@ -9704,8 +10420,27 @@ moderationAdminRoutes.delete("/logs/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+// src/rate-limit.ts
+var rateLimitMiddleware = /* @__PURE__ */ __name(() => {
+  return async (c, next) => {
+    if (c.env.RATE_LIMITER) {
+      const ip = c.req.header("CF-Connecting-IP") || c.req.header("X-Forwarded-For") || "unknown";
+      try {
+        const { success } = await c.env.RATE_LIMITER.limit({ key: ip });
+        if (!success) {
+          return c.json({ error: "\u8BF7\u6C42\u8FC7\u4E8E\u9891\u7E41\uFF0C\u8BF7\u7A0D\u540E\u518D\u8BD5 (Rate limit exceeded)" }, 429);
+        }
+      } catch (err) {
+        console.error("Rate limiter check failed:", err);
+      }
+    }
+    await next();
+  };
+}, "rateLimitMiddleware");
+
 // src/index.ts
 var app = new Hono2();
+app.use("*", rateLimitMiddleware());
 app.use("/api/*", cors());
 app.use("*", async (c, next) => {
   if (c.env.META_DB) {
@@ -9741,6 +10476,7 @@ app.get("/", (c) => c.html(renderDashboard(isDemoHost(c))));
 app.get("/s/:token", (c) => c.html(renderSharePage(c.req.param("token"), c.env.TURNSTILE_SITE_KEY)));
 app.get("/u/:keyId", (c) => c.html(renderUploadKeyPage(c.req.param("keyId"), c.env.TURNSTILE_SITE_KEY)));
 app.get("/upload", (c) => c.html(renderPublicUploadPage(c.env.TURNSTILE_SITE_KEY)));
+app.get("/gallery", (c) => c.html(renderGallery()));
 app.route("/api/auth", authRoutes);
 app.route("/api/files", filesRoutes);
 app.route("/api/upload", uploadRoutes);
@@ -9754,6 +10490,8 @@ app.route("/api/upload-logs", uploadLogRoutes);
 app.route("/api/storage", storageConfigRoutes);
 app.route("/api/moderation", moderationAdminRoutes);
 app.route("/api/random", randomAdminRoutes);
+app.route("/api/picgo", picgoRoutes);
+app.route("/api/gallery", galleryRoutes);
 app.route("/dav", webdavRoutes);
 app.route("/random", randomRoutes);
 var MIGRATION_PREFIXES = [

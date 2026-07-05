@@ -150,15 +150,12 @@ export function renderGallery(): string {
 
         let html = '';
         data.items.forEach(item => {
-          html += \`
-            <div class="gallery-item" onclick="openLightbox('\${item.url}')">
-              <img src="\${item.url}" loading="lazy" alt="\${item.name}">
-              <div class="info">
-                <span class="name" title="\${item.name}">\${item.name}</span>
-                <span class="size">\${formatSize(item.size)}</span>
-              </div>
-            </div>
-          \`;
+          html += '<div class="gallery-item" onclick="openLightbox(\\'' + item.url + '\\')">' +
+                  '<img src="' + item.url + '" loading="lazy" alt="' + item.name + '">' +
+                  '<div class="info">' +
+                  '<span class="name" title="' + item.name + '">' + item.name + '</span>' +
+                  '<span class="size">' + formatSize(item.size) + '</span>' +
+                  '</div></div>';
         });
         container.innerHTML = html;
       } catch (e) {
