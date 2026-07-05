@@ -10,6 +10,7 @@ export function renderDashboard(isDemo: boolean = false): string {
   <style>
     :root{--bg:#f5f5f7;--card:#fff;--border:#e5e5e5;--text:#111;--sub:#888;--accent:#111;--accent-fg:#fff;--hover:#f0f0f0;--row-hover:#f8f8fa;--shadow:0 2px 12px rgba(0,0,0,0.06);--fab-shadow:0 4px 16px rgba(0,0,0,0.15);--up-bg:#fff;--modal-shadow:0 8px 32px rgba(0,0,0,0.12)}
     [data-theme="dark"]{--bg:#09090b;--card:#18181b;--border:#27272a;--text:#fafafa;--sub:#71717a;--accent:#fafafa;--accent-fg:#18181b;--hover:#27272a;--row-hover:#1f1f23;--shadow:0 2px 12px rgba(0,0,0,0.3);--fab-shadow:0 4px 16px rgba(0,0,0,0.4);--up-bg:#18181b;--modal-shadow:0 8px 32px rgba(0,0,0,0.4)}
+    [data-theme="glass"]{--bg:transparent;--card:rgba(255,255,255,0.12);--border:rgba(255,255,255,0.22);--text:#fff;--sub:rgba(255,255,255,0.6);--accent:rgba(255,255,255,0.85);--accent-fg:#1a1a1a;--hover:rgba(255,255,255,0.1);--row-hover:rgba(255,255,255,0.06);--shadow:0 4px 24px rgba(0,0,0,0.15);--fab-shadow:0 8px 32px rgba(0,0,0,0.3);--up-bg:rgba(255,255,255,0.1);--modal-shadow:0 8px 40px rgba(0,0,0,0.3);--glass-blur:20px;--glass-border:1px solid rgba(255,255,255,0.25);--glass-highlight:inset 0 1px 0 rgba(255,255,255,0.3);--glass-surface:rgba(255,255,255,0.08);--glass-surface-hover:rgba(255,255,255,0.14);--glass-glow:0 0 30px rgba(0,0,0,0.1)}
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--text);background:var(--bg);transition:background .35s,color .35s}
     .layout{display:flex;height:100vh;overflow:hidden}
@@ -302,10 +303,154 @@ export function renderDashboard(isDemo: boolean = false): string {
     .sm-test-result.err{color:#ef4444;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.15)}
     .sm-test-result.testing{color:#f59e0b;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.15)}
     @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+
+    /* ═══════════════════════════════════════════════
+       LIQUID GLASS THEME — iOS 26 Style
+       Uses SVG feDisplacementMap for edge refraction
+       ═══════════════════════════════════════════════ */
+
+    /* ── Background wallpaper ── */
+    [data-theme="glass"] body{background:linear-gradient(135deg,#1c1c1e 0%,#2c2c2e 25%,#252528 50%,#1e1e20 75%,#161618 100%);background-attachment:fixed;min-height:100vh}
+    [data-theme="glass"] body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse at 25% 40%,rgba(255,255,255,0.04) 0%,transparent 55%),radial-gradient(ellipse at 75% 25%,rgba(255,255,255,0.03) 0%,transparent 50%),radial-gradient(ellipse at 50% 80%,rgba(255,255,255,0.02) 0%,transparent 50%);pointer-events:none;z-index:0;animation:glassAmbient 15s ease-in-out infinite alternate}
+    @keyframes glassAmbient{0%{opacity:0.7}50%{opacity:1}100%{opacity:0.6}}
+    [data-theme="glass"] .layout{position:relative;z-index:1}
+
+    /* ── Liquid Glass surface — shared mixin via .lg-surface ── */
+    /* The core: SVG displacement filter for edge refraction */
+    [data-theme="glass"] .side,
+    [data-theme="glass"] .modal,
+    [data-theme="glass"] .ac-card,
+    [data-theme="glass"] .storage-card,
+    [data-theme="glass"] .public-upload-card,
+    [data-theme="glass"] .fab,
+    [data-theme="glass"] .up-panel,
+    [data-theme="glass"] #storage-modal>div{filter:url(#liquid-glass-refract)}
+
+    /* ── Glass Sidebar ── */
+    [data-theme="glass"] .side{background:rgba(255,255,255,0.07);backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6);border-right:1px solid rgba(255,255,255,0.18);box-shadow:inset 0 1px 0 rgba(255,255,255,0.25),inset -1px 0 0 rgba(255,255,255,0.06),2px 0 20px rgba(0,0,0,0.2)}
+    [data-theme="glass"] .nav{color:rgba(255,255,255,0.55)}
+    [data-theme="glass"] .nav:hover{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.9)}
+    [data-theme="glass"] .nav.on{background:rgba(255,255,255,0.13);color:#fff;border:1px solid rgba(255,255,255,0.18);box-shadow:inset 0 1px 0 rgba(255,255,255,0.2),0 2px 8px rgba(0,0,0,0.1)}
+    [data-theme="glass"] .pill:hover{background:rgba(255,255,255,0.08)}
+    [data-theme="glass"] .side-logo{color:#fff}
+
+    /* ── Glass Topbar ── */
+    [data-theme="glass"] .topbar{background:rgba(255,255,255,0.06);backdrop-filter:blur(20px) saturate(1.4);-webkit-backdrop-filter:blur(20px) saturate(1.4);border-bottom:1px solid rgba(255,255,255,0.15);box-shadow:inset 0 1px 0 rgba(255,255,255,0.2),0 2px 12px rgba(0,0,0,0.15)}
+    [data-theme="glass"] .search input{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#fff}
+    [data-theme="glass"] .search input::placeholder{color:rgba(255,255,255,0.35)}
+    [data-theme="glass"] .search input:focus{border-color:rgba(255,255,255,0.35);background:rgba(255,255,255,0.12);box-shadow:0 0 0 3px rgba(255,255,255,0.06)}
+    [data-theme="glass"] .theme-btn,[data-theme="glass"] .icon-btn{border-color:rgba(255,255,255,0.15);color:rgba(255,255,255,0.65)}
+    [data-theme="glass"] .theme-btn:hover,[data-theme="glass"] .icon-btn:hover{background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.25)}
+
+    /* ── Glass Breadcrumbs & Backend Selector ── */
+    [data-theme="glass"] .breadcrumbs{border-bottom:1px solid rgba(255,255,255,0.08);background:transparent}
+    [data-theme="glass"] .breadcrumbs .bc-item:hover{background:rgba(255,255,255,0.08)}
+    [data-theme="glass"] .backend-selector{border-bottom:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.02)}
+    [data-theme="glass"] .backend-selector select{background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.15);color:#fff}
+
+    /* ── Glass File List ── */
+    [data-theme="glass"] .list-head{border-bottom:1px solid rgba(255,255,255,0.08)}
+    [data-theme="glass"] .row{border-bottom:1px solid rgba(255,255,255,0.04)}
+    [data-theme="glass"] .row:hover{background:rgba(255,255,255,0.06);box-shadow:inset 0 1px 0 rgba(255,255,255,0.12),0 2px 8px rgba(0,0,0,0.08);border-radius:10px;border-bottom-color:transparent}
+    [data-theme="glass"] .sel-toolbar{background:rgba(255,255,255,0.05);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid rgba(255,255,255,0.12)}
+
+    /* ── Glass Buttons — with specular edge highlight ── */
+    [data-theme="glass"] .btn-p{background:rgba(255,255,255,0.15);color:#fff;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.28);box-shadow:inset 0 1px 0 rgba(255,255,255,0.35),inset 0 -1px 0 rgba(0,0,0,0.1),0 4px 12px rgba(0,0,0,0.15);transition:all .3s cubic-bezier(.34,1.56,.64,1)}
+    [data-theme="glass"] .btn-p:hover{background:rgba(255,255,255,0.22);box-shadow:inset 0 1px 0 rgba(255,255,255,0.4),inset 0 -1px 0 rgba(0,0,0,0.1),0 6px 20px rgba(0,0,0,0.2);transform:translateY(-2px) scale(1.02)}
+    [data-theme="glass"] .btn-s{background:rgba(255,255,255,0.05);color:rgba(255,255,255,0.8);border:1px solid rgba(255,255,255,0.12)}
+    [data-theme="glass"] .btn-s:hover{background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.2)}
+
+    /* ── Glass FAB — liquid bubble ── */
+    [data-theme="glass"] .fab{background:rgba(255,255,255,0.12);color:#fff;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.3);box-shadow:inset 0 2px 0 rgba(255,255,255,0.3),inset 0 -2px 4px rgba(0,0,0,0.15),0 8px 32px rgba(0,0,0,0.25),0 0 20px rgba(0,0,0,0.08)}
+    [data-theme="glass"] .fab:hover{background:rgba(255,255,255,0.2);box-shadow:inset 0 2px 0 rgba(255,255,255,0.4),inset 0 -2px 4px rgba(0,0,0,0.15),0 8px 32px rgba(0,0,0,0.35),0 0 30px rgba(0,0,0,0.12)}
+
+    /* ── Glass Modal & Overlay — deep frosted glass ── */
+    [data-theme="glass"] .overlay{background:rgba(0,0,0,0.35);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+    [data-theme="glass"] .modal{background:rgba(255,255,255,0.08);backdrop-filter:blur(30px) saturate(1.5);-webkit-backdrop-filter:blur(30px) saturate(1.5);border:1px solid rgba(255,255,255,0.2);box-shadow:inset 0 1px 0 rgba(255,255,255,0.3),inset 0 -1px 0 rgba(255,255,255,0.05),0 12px 48px rgba(0,0,0,0.3),0 0 24px rgba(0,0,0,0.08)}
+    [data-theme="glass"] .modal input[type=text],[data-theme="glass"] .modal input[type=password],[data-theme="glass"] .modal select{background:rgba(255,255,255,0.07);border-color:rgba(255,255,255,0.15);color:#fff}
+    [data-theme="glass"] .modal input:focus,[data-theme="glass"] .modal select:focus{border-color:rgba(255,255,255,0.3);box-shadow:0 0 0 3px rgba(255,255,255,0.06)}
+
+    /* ── Glass Cards — frosted panels with specular top edge ── */
+    [data-theme="glass"] .ac-card,[data-theme="glass"] .storage-card,[data-theme="glass"] .public-upload-card{background:rgba(255,255,255,0.06);backdrop-filter:blur(18px) saturate(1.3);-webkit-backdrop-filter:blur(18px) saturate(1.3);border:1px solid rgba(255,255,255,0.18);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22),0 4px 20px rgba(0,0,0,0.15)}
+    [data-theme="glass"] .ac-card:hover,[data-theme="glass"] .storage-card:hover{border-color:rgba(255,255,255,0.3);box-shadow:inset 0 1px 0 rgba(255,255,255,0.3),0 6px 24px rgba(0,0,0,0.2),0 0 16px rgba(0,0,0,0.06)}
+
+    /* ── Glass Log Cards ── */
+    [data-theme="glass"] .log-card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.12)}
+    [data-theme="glass"] .log-card:hover{background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.2);box-shadow:inset 0 1px 0 rgba(255,255,255,0.2),0 4px 16px rgba(0,0,0,0.1)}
+    [data-theme="glass"] .dl-stat{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.15)}
+
+    /* ── Glass Upload Panel ── */
+    [data-theme="glass"] .up-panel{background:rgba(255,255,255,0.07);backdrop-filter:blur(24px) saturate(1.4);-webkit-backdrop-filter:blur(24px) saturate(1.4);border:1px solid rgba(255,255,255,0.2);border-bottom:none;box-shadow:inset 0 1px 0 rgba(255,255,255,0.25),0 -4px 24px rgba(0,0,0,0.2)}
+    [data-theme="glass"] .up-head{border-bottom:1px solid rgba(255,255,255,0.1)}
+    [data-theme="glass"] .up-item{border-bottom:1px solid rgba(255,255,255,0.06)}
+    [data-theme="glass"] .up-bar{background:rgba(255,255,255,0.1)}
+    [data-theme="glass"] .up-bar .fl{background:linear-gradient(90deg,rgba(255,255,255,0.5),rgba(255,255,255,0.3))}
+
+    /* ── Glass Drop zone ── */
+    [data-theme="glass"] .drop{background:rgba(255,255,255,0.04);border-color:rgba(255,255,255,0.25)}
+
+    /* ── Glass Table ── */
+    [data-theme="glass"] .dl-table-wrap{background:rgba(255,255,255,0.03);border-color:rgba(255,255,255,0.1)}
+    [data-theme="glass"] .dl-table thead{background:rgba(255,255,255,0.04)}
+    [data-theme="glass"] .dl-table th{border-bottom-color:rgba(255,255,255,0.08)}
+    [data-theme="glass"] .dl-table td{border-bottom-color:rgba(255,255,255,0.05)}
+    [data-theme="glass"] .dl-table tr:hover{background:rgba(255,255,255,0.05)}
+
+    /* ── Glass Form inputs ── */
+    [data-theme="glass"] .form-group input,[data-theme="glass"] .form-group select{background:rgba(255,255,255,0.06);border-color:rgba(255,255,255,0.12);color:#fff}
+    [data-theme="glass"] .form-group input:focus,[data-theme="glass"] .form-group select:focus{border-color:rgba(255,255,255,0.3);box-shadow:0 0 0 3px rgba(255,255,255,0.06)}
+    [data-theme="glass"] .form-group input::placeholder{color:rgba(255,255,255,0.3)}
+
+    /* ── Glass Storage Modal ── */
+    [data-theme="glass"] #storage-modal>div{background:rgba(255,255,255,0.07);backdrop-filter:blur(30px) saturate(1.5);-webkit-backdrop-filter:blur(30px) saturate(1.5);border:1px solid rgba(255,255,255,0.18);box-shadow:inset 0 1px 0 rgba(255,255,255,0.25),0 12px 48px rgba(0,0,0,0.3)}
+    [data-theme="glass"] #storage-modal>div>div:first-child{border-bottom-color:rgba(255,255,255,0.1)}
+
+    /* ── Glass test results ── */
+    [data-theme="glass"] .sm-test-result.ok{background:rgba(16,185,129,0.1);border-color:rgba(16,185,129,0.2)}
+    [data-theme="glass"] .sm-test-result.err{background:rgba(239,68,68,0.1);border-color:rgba(239,68,68,0.2)}
+    [data-theme="glass"] .sm-test-result.testing{background:rgba(245,158,11,0.1);border-color:rgba(245,158,11,0.2)}
+
+    /* ── Glass scrollbar ── */
+    [data-theme="glass"] ::-webkit-scrollbar{width:6px;height:6px}
+    [data-theme="glass"] ::-webkit-scrollbar-track{background:transparent}
+    [data-theme="glass"] ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.12);border-radius:3px}
+    [data-theme="glass"] ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.22)}
+
+    /* ── Glass misc ── */
+    [data-theme="glass"] #ac-hint{background:rgba(255,255,255,0.04);border-color:rgba(255,255,255,0.1)}
+    [data-theme="glass"] .demo-banner{background:rgba(255,255,255,0.08);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:#fff}
+    [data-theme="glass"] .side-overlay.on{background:rgba(0,0,0,0.3);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+    [data-theme="glass"] .log-search input{background:rgba(255,255,255,0.06);border-color:rgba(255,255,255,0.12);color:#fff}
+    [data-theme="glass"] .log-search input::placeholder{color:rgba(255,255,255,0.3)}
+    [data-theme="glass"] .log-search input:focus{border-color:rgba(255,255,255,0.3);background:rgba(255,255,255,0.09)}
+    [data-theme="glass"] .batch-share-list{border-color:rgba(255,255,255,0.1)}
+    [data-theme="glass"] .batch-share-item{border-bottom-color:rgba(255,255,255,0.06)}
+    [data-theme="glass"] .ac button:hover{background:rgba(255,255,255,0.08)}
+    [data-theme="glass"] input[type=checkbox]{accent-color:rgba(200,200,200,0.9)}
+    [data-theme="glass"] .mod-badge.deleted{background:rgba(239,68,68,0.12)}
+    [data-theme="glass"] .mod-badge.racy{background:rgba(245,158,11,0.12)}
+    [data-theme="glass"] .mod-badge.kept{background:rgba(16,185,129,0.12)}
+    [data-theme="glass"] .bg-accent{background:rgba(255,255,255,0.05);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
   </style>
 </head>
 <body${isDemo ? ' class="demo"' : ''}>
   ${isDemo ? '<div class="demo-banner">🔒 演示环境 — 文件上传已禁用，仅可浏览和下载</div>' : ''}
+  <!-- SVG Liquid Glass filter: feDisplacementMap for edge refraction -->
+  <svg id="liquid-glass-svg" width="0" height="0" style="position:absolute;pointer-events:none">
+    <defs>
+      <filter id="liquid-glass-refract" x="-5%" y="-5%" width="110%" height="110%" color-interpolation-filters="sRGB">
+        <!-- Generate noise pattern for displacement -->
+        <feTurbulence type="fractalNoise" baseFrequency="0.015 0.015" numOctaves="3" seed="2" result="noise"/>
+        <!-- Edge displacement: distort only edges via displacement map -->
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="6" xChannelSelector="R" yChannelSelector="G" result="displaced"/>
+        <!-- Blend displaced with original for subtle edge-only effect -->
+        <feGaussianBlur in="displaced" stdDeviation="0.4" result="softened"/>
+        <feMerge>
+          <feMergeNode in="softened"/>
+        </feMerge>
+      </filter>
+    </defs>
+  </svg>
   <div class="side-overlay" id="side-overlay" onclick="closeSide()"></div>
   <div class="layout">
     <nav class="side" id="side">
@@ -370,6 +515,7 @@ export function renderDashboard(isDemo: boolean = false): string {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
           </button>
           <button class="theme-btn" onclick="toggleTheme()" title="外观" id="theme-btn">🌙</button>
+          <button class="theme-btn" onclick="toggleGlass()" title="液态玻璃" id="glass-btn" style="font-size:13px;letter-spacing:0.5px">💎</button>
         </div>
       </header>
 
@@ -667,10 +813,11 @@ export function renderDashboard(isDemo: boolean = false): string {
     let selectedKeys=new Set();
     let currentBackend='';
 
-    // Theme
-    function initTheme(){var t=localStorage.getItem('iodrive_theme')||'light';if(t==='dark')document.documentElement.setAttribute('data-theme','dark');updThemeUI()}
-    function toggleTheme(){var d=document.documentElement.getAttribute('data-theme')==='dark';if(d){document.documentElement.removeAttribute('data-theme');localStorage.setItem('iodrive_theme','light')}else{document.documentElement.setAttribute('data-theme','dark');localStorage.setItem('iodrive_theme','dark')}updThemeUI()}
-    function updThemeUI(){var d=document.documentElement.getAttribute('data-theme')==='dark';document.getElementById('theme-btn').textContent=d?'☀️':'🌙'}
+    // Theme (3-state: light / dark / glass)
+    function initTheme(){var t=localStorage.getItem('iodrive_theme')||'light';if(t==='dark')document.documentElement.setAttribute('data-theme','dark');else if(t==='glass'){document.documentElement.setAttribute('data-theme','glass')}updThemeUI()}
+    function toggleTheme(){var cur=document.documentElement.getAttribute('data-theme')||'light';if(cur==='glass'){document.documentElement.removeAttribute('data-theme');localStorage.setItem('iodrive_theme','light')}else if(cur==='dark'){document.documentElement.removeAttribute('data-theme');localStorage.setItem('iodrive_theme','light')}else{document.documentElement.setAttribute('data-theme','dark');localStorage.setItem('iodrive_theme','dark')}updThemeUI()}
+    function toggleGlass(){var cur=document.documentElement.getAttribute('data-theme')||'light';if(cur==='glass'){document.documentElement.removeAttribute('data-theme');localStorage.setItem('iodrive_theme','light')}else{document.documentElement.setAttribute('data-theme','glass');localStorage.setItem('iodrive_theme','glass')}updThemeUI()}
+    function updThemeUI(){var cur=document.documentElement.getAttribute('data-theme')||'light';var tb=document.getElementById('theme-btn');var gb=document.getElementById('glass-btn');if(cur==='dark'){tb.textContent='\u2600\uFE0F'}else{tb.textContent='\uD83C\uDF19'}if(gb){if(cur==='glass'){gb.style.background='rgba(255,255,255,0.15)';gb.style.borderColor='rgba(255,255,255,0.35)';gb.style.boxShadow='inset 0 1px 0 rgba(255,255,255,0.3),0 0 12px rgba(0,0,0,0.15)'}else{gb.style.background='';gb.style.borderColor='';gb.style.boxShadow=''}}}
     initTheme();
 
     // ESC 键关闭弹窗
