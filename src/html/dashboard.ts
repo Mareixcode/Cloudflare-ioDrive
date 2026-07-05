@@ -44,7 +44,7 @@ export function renderDashboard(isDemo: boolean = false): string {
 
     /* ── Mobile sidebar overlay ── */
     .side-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:40}
-    .side-overlay.on{display:block;backdrop-filter:blur(2px)}
+    .side-overlay.on{display:block}
     .side-close{display:none;align-items:center;justify-content:space-between;padding:4px 12px 16px}
     .side-close button{background:none;border:none;cursor:pointer;padding:6px;border-radius:6px;color:var(--sub);transition:all .2s}
     .side-close button:hover{background:var(--hover);color:var(--text)}
@@ -493,7 +493,7 @@ export function renderDashboard(isDemo: boolean = false): string {
     [data-glass="true"] #ac-hint{background:var(--g-surf-card);border-color:var(--g-border)}
     [data-glass="true"] .demo-banner{background:var(--g-surf-card);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:var(--g-text);text-shadow:0 1px 2px rgba(255,255,255,0.4)}
     [data-theme="dark"][data-glass="true"] .demo-banner{text-shadow:0 1px 2px rgba(0,0,0,0.4)}
-    [data-glass="true"] .side-overlay.on{background:rgba(0,0,0,0.3);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+    [data-glass="true"] .side-overlay.on{background:rgba(0,0,0,0.3)}
     [data-glass="true"] .log-search input{background:var(--g-input-bg);border-color:var(--g-border);color:var(--g-text)}
     [data-glass="true"] .log-search input::placeholder{color:var(--g-input-ph)}
     [data-glass="true"] .log-search input:focus{border-color:var(--g-border-hover);background:var(--g-surf-card)}
