@@ -1,6 +1,14 @@
 import type { Env } from './types';
 
 /**
+ * 获取站点隔离前缀。
+ * 当多个站点共享同一个 KV 命名空间时，用 R2_BUCKET 区分不同站点的缓存。
+ */
+function getSitePrefix(env: Env): string {
+  return env.R2_BUCKET || 'default';
+}
+
+/**
  * 获取文件 Key 对应的父级目录前缀（带有斜杠结束）
  */
 export function getParentPrefix(key: string): string {
@@ -25,7 +33,8 @@ export function getParentPrefix(key: string): string {
 export async function getFileCache(env: Env, backend: string, prefix: string): Promise<any | null> {
   if (!env.CACHE_KV) return null;
   try {
-    const cacheKey = `file_index:${backend}:${prefix}`;
+    const site = getSitePrefix(env);
+    const cacheKey = `file_index:${site}:${backend}:${prefix}`;
     const value = await env.CACHE_KV.get(cacheKey);
     if (!value) return null;
     return JSON.parse(value);
@@ -41,7 +50,8 @@ export async function getFileCache(env: Env, backend: string, prefix: string): P
 export async function setFileCache(env: Env, backend: string, prefix: string, data: any): Promise<void> {
   if (!env.CACHE_KV) return;
   try {
-    const cacheKey = `file_index:${backend}:${prefix}`;
+    const site = getSitePrefix(env);
+    const cacheKey = `file_index:${site}:${backend}:${prefix}`;
     await env.CACHE_KV.put(cacheKey, JSON.stringify(data), {
       expirationTtl: 600, // 10 分钟配置
     });
@@ -56,7 +66,8 @@ export async function setFileCache(env: Env, backend: string, prefix: string, da
 export async function getFoldersCache(env: Env, backend: string): Promise<string[] | null> {
   if (!env.CACHE_KV) return null;
   try {
-    const cacheKey = `folders_list:${backend}`;
+    const site = getSitePrefix(env);
+    const cacheKey = `folders_list:${site}:${backend}`;
     const value = await env.CACHE_KV.get(cacheKey);
     if (!value) return null;
     return JSON.parse(value);
@@ -72,7 +83,8 @@ export async function getFoldersCache(env: Env, backend: string): Promise<string
 export async function setFoldersCache(env: Env, backend: string, folders: string[]): Promise<void> {
   if (!env.CACHE_KV) return;
   try {
-    const cacheKey = `folders_list:${backend}`;
+    const site = getSitePrefix(env);
+    const cacheKey = `folders_list:${site}:${backend}`;
     await env.CACHE_KV.put(cacheKey, JSON.stringify(folders), {
       expirationTtl: 600,
     });
@@ -87,9 +99,10 @@ export async function setFoldersCache(env: Env, backend: string, folders: string
 export async function clearFileCache(env: Env, backend: string, key: string): Promise<void> {
   if (!env.CACHE_KV) return;
   try {
+    const site = getSitePrefix(env);
     const parent = getParentPrefix(key);
-    const cacheKey = `file_index:${backend}:${parent}`;
-    const foldersKey = `folders_list:${backend}`;
+    const cacheKey = `file_index:${site}:${backend}:${parent}`;
+    const foldersKey = `folders_list:${site}:${backend}`;
     
     const promises = [
       env.CACHE_KV.delete(cacheKey),
@@ -97,7 +110,7 @@ export async function clearFileCache(env: Env, backend: string, key: string): Pr
     ];
 
     if (key.endsWith('/')) {
-      promises.push(env.CACHE_KV.delete(`file_index:${backend}:${key}`));
+      promises.push(env.CACHE_KV.delete(`file_index:${site}:${backend}:${key}`));
     }
 
     await Promise.all(promises);
@@ -112,6 +125,7 @@ export async function clearFileCache(env: Env, backend: string, key: string): Pr
 export async function clearFileCacheBatch(env: Env, backend: string, keys: string[]): Promise<void> {
   if (!env.CACHE_KV) return;
   try {
+    const site = getSitePrefix(env);
     const parents = new Set<string>();
     const specificKeys = new Set<string>();
 
@@ -124,13 +138,13 @@ export async function clearFileCacheBatch(env: Env, backend: string, keys: strin
 
     const promises: Promise<void>[] = [];
     for (const parent of parents) {
-      promises.push(env.CACHE_KV.delete(`file_index:${backend}:${parent}`));
+      promises.push(env.CACHE_KV.delete(`file_index:${site}:${backend}:${parent}`));
     }
     for (const specificKey of specificKeys) {
-      promises.push(env.CACHE_KV.delete(`file_index:${backend}:${specificKey}`));
+      promises.push(env.CACHE_KV.delete(`file_index:${site}:${backend}:${specificKey}`));
     }
 
-    promises.push(env.CACHE_KV.delete(`folders_list:${backend}`));
+    promises.push(env.CACHE_KV.delete(`folders_list:${site}:${backend}`));
 
     await Promise.all(promises);
   } catch (err) {

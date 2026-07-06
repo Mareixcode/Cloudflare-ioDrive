@@ -104,31 +104,6 @@ app.route('/api/gallery', galleryRoutes);
 app.route('/dav', webdavRoutes);
 app.route('/random', randomRoutes);
 
-// ── Debug R2 ───────────────────────────────────
-app.get('/debug-r2', async (c) => {
-  if (!c.env.DRIVE) return c.json({ error: 'DRIVE is not bound' });
-  const listed = await c.env.DRIVE.list({ limit: 100 });
-  return c.json({
-    objects: listed.objects.map(o => o.key),
-    truncated: listed.truncated,
-    total: listed.objects.length
-  });
-});
-
-app.get('/debug-s3', async (c) => {
-  const { getAllS3ConfigsAsync } = require('./storage');
-  const { createS3Engine } = require('./storage-engine');
-  const cfgs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
-  if (cfgs.length === 0) return c.json({ error: 'No S3 config found' });
-  const engine = createS3Engine(cfgs[0]);
-  const listed = await engine.list('', { delimiter: '' }); // List ALL files in S3
-  return c.json({
-    objects: listed.objects.map(o => o.key),
-    bucket: cfgs[0].bucket,
-    total: listed.objects.length
-  });
-});
-
 // ── Migration: R2 JSON -> D1 ────────────────
 //
 // POST /api/migration/r2-to-d1

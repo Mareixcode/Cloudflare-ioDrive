@@ -648,6 +648,23 @@ binding = "DRIVE"       # 代码中使用的绑定名，不可修改
 bucket_name = "iodrive" # 你的 R2 存储桶名称
 ```
 
+> ⚠️ **重要：`bucket_name` 必须与 `[vars]` 中的 `R2_BUCKET` 完全一致。**
+> 如果两者不一致（例如拼写错误），Worker 会绑定到错误的桶，导致文件列表显示为空或数据丢失。请务必仔细核对。
+
+### KV 缓存配置
+
+```toml
+[[kv_namespaces]]
+binding = "CACHE_KV"
+id = "your-kv-namespace-id"
+```
+
+> ⚠️ **多实例部署注意：** 如果你在同一个 Cloudflare 账户下部署了多个 ioDrive 实例（例如生产站 + 演示站），并且它们共享同一个 KV 命名空间（`CACHE_KV` 的 `id` 相同），**必须确保每个实例的 `R2_BUCKET` 值不同**。
+>
+> ioDrive 使用 `R2_BUCKET` 作为缓存隔离标识，缓存 key 格式为 `file_index:{R2_BUCKET}:{backend}:{prefix}`。如果多个实例的 `R2_BUCKET` 相同，它们的文件列表缓存会互相覆盖，导致站点 A 显示站点 B 的文件。
+>
+> **推荐做法：** 为每个实例分配独立的 KV 命名空间，或确保 `R2_BUCKET` 值唯一。
+
 ### CORS 配置
 
 默认允许所有来源访问 `/api/*` 路径。如需限制，可在 `src/index.ts` 中修改：
