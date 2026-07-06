@@ -646,6 +646,23 @@ binding = "DRIVE"       # Binding name used in code — do not modify
 bucket_name = "iodrive" # Your R2 bucket name
 ```
 
+> ⚠️ **Important: `bucket_name` must exactly match `R2_BUCKET` in `[vars]`.**
+> If they don't match (e.g., a typo), the Worker will bind to the wrong bucket, causing file lists to appear empty or data to be inaccessible. Always double-check both values.
+
+### KV Cache Configuration
+
+```toml
+[[kv_namespaces]]
+binding = "CACHE_KV"
+id = "your-kv-namespace-id"
+```
+
+> ⚠️ **Multi-instance deployment note:** If you deploy multiple ioDrive instances under the same Cloudflare account (e.g., production + demo) and they share the same KV namespace (same `CACHE_KV` `id`), **each instance must have a unique `R2_BUCKET` value**.
+>
+> ioDrive uses `R2_BUCKET` as a cache isolation key. The cache key format is `file_index:{R2_BUCKET}:{backend}:{prefix}`. If multiple instances share the same `R2_BUCKET`, their file list caches will overwrite each other, causing Site A to display Site B's files.
+>
+> **Recommended:** Assign a separate KV namespace to each instance, or ensure each `R2_BUCKET` value is unique.
+
 ### CORS Configuration
 
 All origins are allowed for `/api/*` paths by default. To restrict, modify `src/index.ts`:
