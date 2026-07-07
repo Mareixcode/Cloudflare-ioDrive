@@ -30,6 +30,7 @@ export function renderDashboard(isDemo: boolean = false): string {
     #page-files,#page-downloads,#page-uploads,#page-uploadkeys{flex:1;display:flex;flex-direction:column;overflow:hidden}
     #page-account{flex:1;display:flex;flex-direction:column;overflow:hidden}
     #page-moderation{flex:1;display:flex;flex-direction:column;overflow:hidden}
+    #page-imgbed{flex:1;display:flex;flex-direction:column;overflow:hidden}
     #page-downloads>div,#page-uploads>div,#page-shares>div,#page-uploadkeys>div,#page-moderation>div{flex:1;min-height:0}
 
     .mod-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600}
@@ -574,6 +575,10 @@ export function renderDashboard(isDemo: boolean = false): string {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
         审核日志
       </a>
+      <a class="nav" data-nav="imgbed" onclick="go('imgbed')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+        图床管理
+      </a>
       <a class="nav" data-nav="account" onclick="go('account')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         账号设置
@@ -838,6 +843,25 @@ export function renderDashboard(isDemo: boolean = false): string {
 
       <!-- Account Settings page -->
       <div id="page-account" style="display:none">
+
+      <!-- Imgbed Management page -->
+      <div id="page-imgbed" style="display:none">
+        <div style="padding:20px 24px;overflow-y:auto;height:100%">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;flex-wrap:wrap;gap:8px">
+            <div>
+              <div style="font-size:16px;font-weight:700;color:var(--text)">图床管理</div>
+              <div style="font-size:12px;color:var(--sub);margin-top:4px">管理通过图床上传的所有图片 · <a href="/imgbed" target="_blank" style="color:var(--sub);text-decoration:underline">打开公开图床页面 ↗</a></div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-s" onclick="loadImgbedList()">刷新</button>
+            </div>
+          </div>
+          <div class="dl-stats" id="ib-stats"></div>
+          <div id="ib-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-top:16px"></div>
+          <div id="ib-empty" style="display:none" class="log-empty"><div class="icon">🖼️</div><div style="font-size:15px;font-weight:600">图床暂无图片</div><div style="font-size:12px;margin-top:6px">图片会在公开图床页面上传后显示在这里。</div></div>
+        </div>
+      </div>
+
         <div style="padding:20px 24px;overflow-y:auto;height:100%;max-width:560px">
           <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px">账号设置</div>
           <div style="font-size:12px;color:var(--sub);margin-bottom:24px">修改管理员用户名和密码，配置保存在 R2 存储中</div>
@@ -937,6 +961,7 @@ export function renderDashboard(isDemo: boolean = false): string {
       document.getElementById('page-uploadkeys').style.display=page==='uploadkeys'?'':'none';
       document.getElementById('page-storage').style.display=page==='storage'?'':'none';
       document.getElementById('page-moderation').style.display=page==='moderation'?'':'none';
+      document.getElementById('page-imgbed').style.display=page==='imgbed'?'':'none';
       document.getElementById('page-account').style.display=page==='account'?'':'none';
       if(page==='files')loadFiles();
       if(page==='uploads')loadUploads();
@@ -945,6 +970,7 @@ export function renderDashboard(isDemo: boolean = false): string {
       if(page==='uploadkeys')loadUploadKeys();
       if(page==='storage')loadStorageBackends();
       if(page==='moderation'){loadModerationConfig();loadModerationLogs();}
+      if(page==='imgbed')loadImgbedList();
       if(page==='account')loadAdminInfo();
       closeSide();
     }
@@ -1892,6 +1918,48 @@ export function renderDashboard(isDemo: boolean = false): string {
       if(!confirm('确认清空所有审核日志？'))return;
       var r=await api('/api/moderation/logs',{method:'DELETE'});
       if(r&&r.ok)loadModerationLogs();
+    }
+
+    // ── Imgbed Management ──
+    async function loadImgbedList(){
+      var stats=document.getElementById('ib-stats');
+      var grid=document.getElementById('ib-grid');
+      var empty=document.getElementById('ib-empty');
+      stats.innerHTML='<div class="dl-stat"><div class="num" style="color:var(--sub)">...</div><div class="label">加载中</div></div>';
+      try{
+        var r=await api('/api/imgbed/list');
+        if(!r){stats.innerHTML='<div class="dl-stat"><div class="num" style="color:var(--sub)">-</div><div class="label">加载失败</div></div>';return}
+        var d=await r.json();
+        var items=d.items||[];
+        var totalSize=0;items.forEach(function(x){totalSize+=x.size||0});
+        stats.innerHTML='<div class="dl-stat"><div class="num">'+items.length+'</div><div class="label">图片总数</div></div><div class="dl-stat"><div class="num">'+fmt(totalSize)+'</div><div class="label">总大小</div></div>';
+        if(!items.length){grid.innerHTML='';empty.style.display='';return}
+        empty.style.display='none';
+        var h='';
+        items.forEach(function(item){
+          h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;transition:transform .2s,box-shadow .2s;cursor:pointer" onmouseenter="this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 4px 12px rgba(0,0,0,0.1)\'" onmouseleave="this.style.transform=\'\';this.style.boxShadow=\'\'">';
+          h+='<div style="aspect-ratio:1;overflow:hidden;background:var(--hover)"><img src="'+esc(item.url)+'" alt="'+esc(item.name)+'" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.style.display=\'none\'"></div>';
+          h+='<div style="padding:8px 10px">';
+          h+='<div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+esc(item.name)+'">'+esc(item.name)+'</div>';
+          h+='<div style="font-size:11px;color:var(--sub);margin-top:2px">'+fmt(item.size)+'</div>';
+          h+='<div style="display:flex;gap:4px;margin-top:6px">';
+          h+='<button class="btn btn-s" style="font-size:11px;padding:3px 8px" onclick="event.stopPropagation();copyImgUrl(\''+esc(item.url).replace(/'/g,"\\'")+'\',this)">复制链接</button>';
+          h+='<button class="btn btn-s" style="font-size:11px;padding:3px 8px;color:#ef4444" onclick="event.stopPropagation();deleteImgbedItem(\''+esc(item.key).replace(/'/g,"\\'")+'\')">删除</button>';
+          h+='</div></div></div>';
+        });
+        grid.innerHTML=h;
+      }catch(e){console.error('loadImgbedList:',e);stats.innerHTML='<div class="dl-stat"><div class="num" style="color:var(--sub)">-</div><div class="label">加载失败</div></div>'}
+    }
+    function copyImgUrl(url,btn){
+      navigator.clipboard.writeText(url).then(function(){
+        var orig=btn.textContent;btn.textContent='已复制';setTimeout(function(){btn.textContent=orig},1200);
+      });
+    }
+    async function deleteImgbedItem(key){
+      if(IS_DEMO)return;
+      if(!confirm('删除这张图片？'))return;
+      var r=await api('/api/imgbed/'+encodeURIComponent(key),{method:'DELETE'});
+      if(r&&r.ok)loadImgbedList();
     }
 
     loadFiles();

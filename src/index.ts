@@ -12,6 +12,7 @@ import { uploadLogRoutes } from './upload-logs';
 import { storageConfigRoutes } from './storage-config';
 import { picgoRoutes } from './picgo';
 import { galleryRoutes } from './gallery';
+import { imgbedRoutes } from './imgbed';
 import { renderDashboard } from './html/dashboard';
 import { renderGallery } from './html/gallery';
 import { renderLogin } from './html/login';
@@ -19,6 +20,7 @@ import { renderSharePage } from './html/share';
 import { renderUploadKeyPage } from './html/upload-key';
 import { renderPublicUploadPage } from './html/public-upload';
 import { renderDemo } from './html/demo';
+import { renderImgbed } from './html/imgbed';
 import { ensureD1Schema, createMetadataStore } from './metadata-store';
 import { webdavRoutes } from './webdav';
 import { randomRoutes, randomAdminRoutes } from './random';
@@ -64,6 +66,10 @@ app.use('/api/upload-public/*', async (c, next) => {
   if (isDemoHost(c)) return c.json({ error: '演示环境禁止实际上传文件' }, 403);
   await next();
 });
+app.use('/api/imgbed/upload', async (c, next) => {
+  if (isDemoHost(c)) return c.json({ error: '演示环境禁止实际上传文件' }, 403);
+  await next();
+});
 
 // 演示站禁止删除操作
 app.use('/api/*', async (c, next) => {
@@ -82,6 +88,7 @@ app.get('/s/:token', (c) => c.html(renderSharePage(c.req.param('token'), c.env.T
 app.get('/u/:keyId', (c) => c.html(renderUploadKeyPage(c.req.param('keyId'), c.env.TURNSTILE_SITE_KEY)));
 app.get('/upload', (c) => c.html(renderPublicUploadPage(c.env.TURNSTILE_SITE_KEY)));
 app.get('/gallery', (c) => c.html(renderGallery()));
+app.get('/imgbed', (c) => c.html(renderImgbed(c.env.TURNSTILE_SITE_KEY)));
 
 // ── API ───────────────────────────────────
 
@@ -100,6 +107,7 @@ app.route('/api/moderation', moderationAdminRoutes);
 app.route('/api/random', randomAdminRoutes);
 app.route('/api/picgo', picgoRoutes);
 app.route('/api/gallery', galleryRoutes);
+app.route('/api/imgbed', imgbedRoutes);
 
 app.route('/dav', webdavRoutes);
 app.route('/random', randomRoutes);
