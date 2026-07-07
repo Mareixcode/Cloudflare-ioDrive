@@ -30,7 +30,6 @@ export function renderDashboard(isDemo: boolean = false): string {
     #page-files,#page-downloads,#page-uploads,#page-uploadkeys{flex:1;display:flex;flex-direction:column;overflow:hidden}
     #page-account{flex:1;display:flex;flex-direction:column;overflow:hidden}
     #page-moderation{flex:1;display:flex;flex-direction:column;overflow:hidden}
-    #page-imgbed{flex:1;display:flex;flex-direction:column;overflow:hidden}
     #page-downloads>div,#page-uploads>div,#page-shares>div,#page-uploadkeys>div,#page-moderation>div{flex:1;min-height:0}
 
     .mod-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600}
@@ -286,8 +285,8 @@ export function renderDashboard(isDemo: boolean = false): string {
 
     /* ── Account settings ── */
     .ac-card{background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:20px 22px;margin-bottom:16px;transition:all .35s;animation:cardIn .45s cubic-bezier(.34,1.56,.64,1) both}
-    .ac-card:nth-child(2){animation-delay:.08s}
-    .ac-card:nth-child(3){animation-delay:.14s}
+    .ac-card+.ac-card{animation-delay:.08s}
+    .ac-card+.ac-card+.ac-card{animation-delay:.14s}
     .ac-card:hover{border-color:var(--accent);box-shadow:var(--shadow)}
     .ac-card-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:14px;display:flex;align-items:center;gap:8px}
     .ac-card-title .ac-icon{width:32px;height:32px;border-radius:10px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:15px}
@@ -843,25 +842,6 @@ export function renderDashboard(isDemo: boolean = false): string {
 
       <!-- Account Settings page -->
       <div id="page-account" style="display:none">
-
-      <!-- Imgbed Management page -->
-      <div id="page-imgbed" style="display:none">
-        <div style="padding:20px 24px;overflow-y:auto;height:100%">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;flex-wrap:wrap;gap:8px">
-            <div>
-              <div style="font-size:16px;font-weight:700;color:var(--text)">图床管理</div>
-              <div style="font-size:12px;color:var(--sub);margin-top:4px">管理通过图床上传的所有图片 · <a href="/imgbed" target="_blank" style="color:var(--sub);text-decoration:underline">打开公开图床页面 ↗</a></div>
-            </div>
-            <div style="display:flex;gap:8px">
-              <button class="btn btn-s" onclick="loadImgbedList()">刷新</button>
-            </div>
-          </div>
-          <div class="dl-stats" id="ib-stats"></div>
-          <div id="ib-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-top:16px"></div>
-          <div id="ib-empty" style="display:none" class="log-empty"><div class="icon">🖼️</div><div style="font-size:15px;font-weight:600">图床暂无图片</div><div style="font-size:12px;margin-top:6px">图片会在公开图床页面上传后显示在这里。</div></div>
-        </div>
-      </div>
-
         <div style="padding:20px 24px;overflow-y:auto;height:100%;max-width:560px">
           <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px">账号设置</div>
           <div style="font-size:12px;color:var(--sub);margin-bottom:24px">修改管理员用户名和密码，配置保存在 R2 存储中</div>
