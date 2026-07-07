@@ -27,10 +27,8 @@ export function renderDashboard(isDemo: boolean = false): string {
     .pill:hover{background:var(--hover);color:var(--text)}
     .pill .dot{width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--accent-fg);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600}
     .main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
-    #page-files,#page-downloads,#page-uploads,#page-uploadkeys{flex:1;display:flex;flex-direction:column;overflow:hidden}
-    #page-account{flex:1;display:flex;flex-direction:column;overflow:hidden}
-    #page-moderation{flex:1;display:flex;flex-direction:column;overflow:hidden}
-    #page-downloads>div,#page-uploads>div,#page-shares>div,#page-uploadkeys>div,#page-moderation>div{flex:1;min-height:0}
+    #page-files,#page-downloads,#page-uploads,#page-uploadkeys,#page-shares,#page-storage,#page-account,#page-moderation{flex:1;display:flex;flex-direction:column;overflow:hidden}
+    #page-downloads>div,#page-uploads>div,#page-shares>div,#page-uploadkeys>div,#page-moderation>div,#page-account>div,#page-storage>div{flex:1;min-height:0}
 
     .mod-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600}
     .mod-badge.deleted{background:rgba(239,68,68,0.12);color:#ef4444}
@@ -285,8 +283,8 @@ export function renderDashboard(isDemo: boolean = false): string {
 
     /* ── Account settings ── */
     .ac-card{background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:20px 22px;margin-bottom:16px;transition:all .35s;animation:cardIn .45s cubic-bezier(.34,1.56,.64,1) both}
-    .ac-card:nth-child(2){animation-delay:.08s}
-    .ac-card:nth-child(3){animation-delay:.14s}
+    .ac-card+.ac-card{animation-delay:.08s}
+    .ac-card+.ac-card+.ac-card{animation-delay:.14s}
     .ac-card:hover{border-color:var(--accent);box-shadow:var(--shadow)}
     .ac-card-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:14px;display:flex;align-items:center;gap:8px}
     .ac-card-title .ac-icon{width:32px;height:32px;border-radius:10px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:15px}
@@ -838,7 +836,7 @@ export function renderDashboard(isDemo: boolean = false): string {
 
       <!-- Account Settings page -->
       <div id="page-account" style="display:none">
-        <div style="padding:20px 24px;overflow-y:auto;height:100%;max-width:560px">
+        <div style="padding:20px 24px;overflow-y:auto;width:100%;max-width:560px;margin:0 auto">
           <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px">账号设置</div>
           <div style="font-size:12px;color:var(--sub);margin-bottom:24px">修改管理员用户名和密码，配置保存在 R2 存储中</div>
 
