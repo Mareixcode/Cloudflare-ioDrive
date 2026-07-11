@@ -1888,7 +1888,7 @@ export function renderDashboard(isDemo: boolean = false): string {
         var actionText=e.action==='deleted'?'已删除':(e.label==='racy'?'保留(racy)':'保留(safe)');
         return '<div class="log-item">'+
           '<div class="log-main"><div class="log-name">'+esc(e.name||e.key)+'</div>'+
-          '<div class="log-meta">'+time+' · '+esc(e.ip||'-')+' · '+(e.provider||'')+' · adult='+(e.scores?.adult||0).toFixed(2)+' racy='+(e.scores?.racy||0).toFixed(2)+'</div></div>'+
+          '<div class="log-meta">'+time+' · '+esc(e.ip||'-')+' · '+(e.provider||'')+' · adult='+((e.scores&&e.scores.adult)||0).toFixed(2)+' racy='+((e.scores&&e.scores.racy)||0).toFixed(2)+'</div></div>'+
           '<div class="log-actions"><span class="mod-badge '+action+'">'+actionText+'</span></div>'+
         '</div>';
       }).join('');
@@ -1917,14 +1917,14 @@ export function renderDashboard(isDemo: boolean = false): string {
         empty.style.display='none';
         var h='';
         items.forEach(function(item){
-          h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;transition:transform .2s,box-shadow .2s;cursor:pointer" onmouseenter="this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 4px 12px rgba(0,0,0,0.1)\'" onmouseleave="this.style.transform=\'\';this.style.boxShadow=\'\'">';
-          h+='<div style="aspect-ratio:1;overflow:hidden;background:var(--hover)"><img src="'+esc(item.url)+'" alt="'+esc(item.name)+'" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.style.display=\'none\'"></div>';
+          h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;transition:transform .2s,box-shadow .2s;cursor:pointer" onmouseenter="this.style.transform=&apos;translateY(-2px)&apos;;this.style.boxShadow=&apos;0 4px 12px rgba(0,0,0,0.1)&apos;" onmouseleave="this.style.transform=&apos;&apos;;this.style.boxShadow=&apos;&apos;">';
+          h+='<div style="aspect-ratio:1;overflow:hidden;background:var(--hover)"><img src="'+esc(item.url)+'" alt="'+esc(item.name)+'" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.style.display=&apos;none&apos;"></div>';
           h+='<div style="padding:8px 10px">';
           h+='<div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+esc(item.name)+'">'+esc(item.name)+'</div>';
           h+='<div style="font-size:11px;color:var(--sub);margin-top:2px">'+fmt(item.size)+'</div>';
           h+='<div style="display:flex;gap:4px;margin-top:6px">';
-          h+='<button class="btn btn-s" style="font-size:11px;padding:3px 8px" onclick="event.stopPropagation();copyImgUrl(\''+esc(item.url).replace(/'/g,"\\'")+'\',this)">复制链接</button>';
-          h+='<button class="btn btn-s" style="font-size:11px;padding:3px 8px;color:#ef4444" onclick="event.stopPropagation();deleteImgbedItem(\''+esc(item.key).replace(/'/g,"\\'")+'\')">删除</button>';
+          h+='<button class="btn btn-s" style="font-size:11px;padding:3px 8px" data-url="'+esc(item.url)+'" onclick="event.stopPropagation();copyImgUrl(this.dataset.url,this)">复制链接</button>';
+          h+='<button class="btn btn-s" style="font-size:11px;padding:3px 8px;color:#ef4444" data-key="'+esc(item.key)+'" onclick="event.stopPropagation();deleteImgbedItem(this.dataset.key)">删除</button>';
           h+='</div></div></div>';
         });
         grid.innerHTML=h;
