@@ -90,7 +90,7 @@ app.use('/api/*', async (c, next) => {
     
     if (path === '/api/files') {
       const prefix = c.req.query('prefix') || 'uploads/';
-      let files = [], folders = [];
+      let files: any[] = [], folders: any[] = [];
       if (prefix === 'uploads/') {
         files = [
           { key: 'uploads/demo-presentation.pdf', name: 'demo-presentation.pdf', size: 2450000, uploaded: d1 },
