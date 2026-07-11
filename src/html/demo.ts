@@ -1,5 +1,5 @@
 export function renderDemo(): string {
-  const IMG = 'https://raw.githubusercontent.com/Mareixcode/Cloudflare-Drive/main/docs/images/screenshots';
+  const IMG = 'https://cdn.jsdelivr.net/gh/Mareixcode/Cloudflare-ioDrive@main/docs/images/screenshots';
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>

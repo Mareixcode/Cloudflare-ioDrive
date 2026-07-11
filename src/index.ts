@@ -79,6 +79,86 @@ app.use('/api/*', async (c, next) => {
   await next();
 });
 
+// 演示站数据 mock
+app.use('/api/*', async (c, next) => {
+  if (isDemoHost(c) && c.req.method === 'GET') {
+    const path = c.req.path;
+    const now = new Date().toISOString();
+    const d1 = new Date(Date.now() - 86400000).toISOString();
+    const d2 = new Date(Date.now() - 186400000).toISOString();
+    const d3 = new Date(Date.now() - 3600000).toISOString();
+    
+    if (path === '/api/files') {
+      const prefix = c.req.query('prefix') || 'uploads/';
+      let files = [], folders = [];
+      if (prefix === 'uploads/') {
+        files = [
+          { key: 'uploads/demo-presentation.pdf', name: 'demo-presentation.pdf', size: 2450000, uploaded: d1 },
+          { key: 'uploads/project-assets.zip', name: 'project-assets.zip', size: 15600000, uploaded: d2 },
+          { key: 'uploads/README.md', name: 'README.md', size: 1250, uploaded: now }
+        ];
+        folders = [
+          { path: 'uploads/Documents/', name: 'Documents' },
+          { path: 'uploads/Images/', name: 'Images' },
+          { path: 'uploads/Shared/', name: 'Shared' }
+        ];
+      } else if (prefix === 'uploads/Images/') {
+        files = [
+          { key: 'uploads/Images/design-mockup.png', name: 'design-mockup.png', size: 3400000, uploaded: d3 },
+          { key: 'uploads/Images/logo.svg', name: 'logo.svg', size: 45000, uploaded: d2 }
+        ];
+      } else if (prefix === 'uploads/Documents/') {
+        files = [
+          { key: 'uploads/Documents/Q3-Report.docx', name: 'Q3-Report.docx', size: 1200000, uploaded: d1 }
+        ];
+      }
+      return c.json({
+        files,
+        folders,
+        ancestors: prefix !== 'uploads/' ? [{path: 'uploads/', name: 'uploads'}] : []
+      });
+    }
+    
+    if (path === '/api/upload-logs') {
+      return c.json({
+        logs: [
+          { id: '1', name: 'demo-presentation.pdf', size: 2450000, ip: '192.168.1.1', created_at: d1 },
+          { id: '2', name: 'project-assets.zip', size: 15600000, ip: '192.168.1.2', created_at: d2 },
+          { id: '3', name: 'design-mockup.png', size: 3400000, ip: '192.168.1.3', created_at: d3 }
+        ],
+        total: 3
+      });
+    }
+    
+    if (path === '/api/share') {
+      return c.json({
+        shares: [
+          { id: 'demo1', name: 'demo-presentation.pdf', downloads: 12, created_at: d1, expires_at: null },
+          { id: 'demo2', name: 'project-assets.zip', downloads: 5, created_at: d2, expires_at: new Date(Date.now() + 86400000).toISOString() }
+        ]
+      });
+    }
+    
+    if (path === '/api/upload-keys') {
+      return c.json({
+        keys: [
+          { id: 'key1', name: '访客上传', path: 'uploads/Guest/', uses: 3, created_at: d2 }
+        ]
+      });
+    }
+    
+    if (path === '/api/imgbed/list') {
+      return c.json({
+        items: [
+          { key: 'imgbed/dashboard.jpg', name: 'dashboard.jpg', url: 'https://cdn.jsdelivr.net/gh/Mareixcode/Cloudflare-ioDrive@main/docs/images/screenshots/dashboard.jpg', size: 68227, uploaded_at: d1 },
+          { key: 'imgbed/upload.png', name: 'upload.png', url: 'https://cdn.jsdelivr.net/gh/Mareixcode/Cloudflare-ioDrive@main/docs/images/screenshots/upload.png', size: 40807, uploaded_at: d2 }
+        ]
+      });
+    }
+  }
+  await next();
+});
+
 // ── Pages ─────────────────────────────────
 
 app.get('/login', (c) => c.html(renderLogin(c.env.TURNSTILE_SITE_KEY)));
