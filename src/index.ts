@@ -196,7 +196,7 @@ app.get('/f/:key{.+}', async (c) => {
     if (!obj) return c.text('Not Found', 404);
     return new Response(obj.body, {
       headers: {
-        'Content-Type': obj.contentType || 'image/jpeg',
+        'Content-Type': obj.httpMetadata?.contentType || 'image/jpeg',
         'Cache-Control': 'public, max-age=31536000',
       }
     });
