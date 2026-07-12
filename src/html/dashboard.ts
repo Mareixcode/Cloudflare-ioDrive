@@ -840,6 +840,19 @@ export function renderDashboard(isDemo: boolean = false): string {
         </div>
       </div>
 
+      <!-- Imgbed page -->
+      <div id="page-imgbed" style="display:none">
+        <div style="padding:20px 24px;overflow-y:auto;height:100%">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <div style="font-size:16px;font-weight:700">图床管理</div>
+            <a href="/imgbed" target="_blank" class="btn btn-s" style="text-decoration:none">图床上传页 ↗</a>
+          </div>
+          <div class="dl-stats" id="ib-stats"></div>
+          <div id="ib-empty" class="log-empty" style="display:none"><div class="icon">🖼️</div><div style="font-size:15px;font-weight:600">暂无图片</div></div>
+          <div id="ib-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:16px"></div>
+        </div>
+      </div>
+
       <!-- Account Settings page -->
       <div id="page-account" style="display:none">
         <div style="padding:20px 24px;overflow-y:auto;height:100%;max-width:560px">
