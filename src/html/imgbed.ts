@@ -103,14 +103,16 @@ export function renderImgbed(siteKey: string): string {
       <a class="back" href="/">← 返回首页</a>
     </div>
 
+    ${siteKey ? `
     <div class="ts-section" id="ts-section">
       <div class="ts-hint">完成人机验证后开始上传</div>
       <div class="ts-box">
         <div class="cf-turnstile" data-sitekey="${siteKey.replace(/"/g, '&quot;')}" data-callback="onTS"></div>
       </div>
     </div>
+    ` : ''}
 
-    <div id="upload-area" style="display:none">
+    <div id="upload-area" style="display:${siteKey ? 'none' : 'block'}">
       <div class="upload-zone" id="upload-zone">
         <div class="uz-icon">📁</div>
         <div class="uz-text">点击选择或拖拽图片到此处</div>

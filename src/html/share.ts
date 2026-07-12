@@ -91,12 +91,14 @@ export function renderSharePage(token: string, siteKey: string): string {
     </div>
 
     <!-- Turnstile -->
+    ${siteKey ? `
     <div id="ts-section" class="ts-section">
       <div class="ts-hint">完成验证后即可下载</div>
       <div class="ts-box">
         <div class="cf-turnstile" data-sitekey="${siteKey.replace(/"/g,'&quot;')}" data-callback="onVerified"></div>
       </div>
     </div>
+    ` : ''}
 
     <!-- Download (hidden until verified) -->
     <div id="dl-section" class="dl-section">
@@ -144,6 +146,9 @@ export function renderSharePage(token: string, siteKey: string): string {
         document.getElementById('fi').textContent=ic[ext]||'\u{1F4C4}';
         document.getElementById('loading').style.display='none';
         document.getElementById('file-info').style.display='block';
+        if (!'${siteKey}') {
+          onVerified('');
+        }
       }catch(e){showError('加载失败，请重试')}
     }
 

@@ -52,8 +52,8 @@ export function renderLogin(siteKey: string): string {
     <p class="sub">输入账号和密码以继续</p>
     <div class="field"><label>用户名</label><input type="text" id="username" placeholder="admin" autocomplete="username"></div>
     <div class="field"><label>密码</label><input type="password" id="password" placeholder="密码" autocomplete="current-password"></div>
-    <div class="cf-wrap"><div class="cf-turnstile" data-sitekey="${siteKey.replace(/"/g,'&quot;')}" data-callback="onTS"></div></div>
-    <button class="submit" id="login-btn" disabled>登录</button>
+    ${siteKey ? `<div class="cf-wrap"><div class="cf-turnstile" data-sitekey="${siteKey.replace(/"/g,'&quot;')}" data-callback="onTS"></div></div>` : ''}
+    <button class="submit" id="login-btn" ${siteKey ? 'disabled' : ''}>登录</button>
     <div class="err" id="login-error"></div>
   </div>
   <script>
@@ -62,7 +62,7 @@ export function renderLogin(siteKey: string): string {
     async function doLogin(){
       const u=document.getElementById('username').value,p=document.getElementById('password').value,e=document.getElementById('login-error'),b=document.getElementById('login-btn');
       if(!u||!p){e.textContent='请输入用户名和密码';e.style.display='block';return}
-      if(!tsToken){e.textContent='请先完成验证';e.style.display='block';return}
+      if(!tsToken && '${siteKey}'){e.textContent='请先完成验证';e.style.display='block';return}
       b.disabled=true;b.textContent='登录中…';e.style.display='none';
       try{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p,turnstile:tsToken})});const d=await r.json();
       if(d.token){localStorage.setItem('iodrive_token',d.token);location.href='/dashboard'}else{e.textContent=d.error||'登录失败，请重试';e.style.display='block';b.disabled=false;b.textContent='登录'}}

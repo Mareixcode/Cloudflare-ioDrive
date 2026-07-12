@@ -90,7 +90,7 @@ imgbedRoutes.post('/upload', async (c) => {
     fileUrl = `https://${c.env.R2_PUBLIC_DOMAIN}/${encoded}`;
   } else {
     const origin = new URL(c.req.url).origin;
-    fileUrl = `${origin}/api/download/url/${key}`;
+    fileUrl = `${origin}/f/${key}`;
   }
 
   return c.json({ ok: true, url: fileUrl, key, name: file.name });
@@ -113,7 +113,7 @@ imgbedRoutes.get('/list', jwtAuth, async (c) => {
           url = `https://${c.env.R2_PUBLIC_DOMAIN}/${obj.key.split('/').map(encodeURIComponent).join('/')}`;
         } else {
           const origin = new URL(c.req.url).origin;
-          url = `${origin}/api/download/url/${obj.key}`;
+          url = `${origin}/f/${obj.key}`;
         }
         return {
           key: obj.key,

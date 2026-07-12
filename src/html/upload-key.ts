@@ -56,8 +56,10 @@ export function renderUploadKeyPage(keyId: string, siteKey: string): string {
       <div class="file-icon">📤</div>
       <div class="title" id="key-label"></div>
       <div class="sub">选择要上传的文件</div>
+      ${siteKey ? `
       <div class="ts-section"><div class="ts-hint">完成验证后开始上传</div><div class="ts-box"><div class="cf-turnstile" data-sitekey="${siteKey.replace(/"/g,'&quot;')}" data-callback="onTS"></div></div></div>
-      <div id="file-area" style="display:none">
+      ` : ''}
+      <div id="file-area" style="display:${siteKey ? 'none' : 'block'}">
         <div class="drop-zone" id="drop-zone"><div class="icon">📁</div>点击选择或拖拽文件到此处</div>
         <div class="file-list" id="file-list"></div>
         <button class="upload-btn" id="upload-btn" disabled onclick="startUpload()">上传</button>
@@ -110,9 +112,9 @@ export function renderUploadKeyPage(keyId: string, siteKey: string): string {
     function addFiles(fl){
       for(var i=0;i<fl.length;i++)selectedFiles.push(fl[i]);
       renderFiles();
-      if(tsToken)document.getElementById('upload-btn').disabled=selectedFiles.length===0;
+      if(tsToken || !'${siteKey}')document.getElementById('upload-btn').disabled=selectedFiles.length===0;
     }
-    function removeFile(i){selectedFiles.splice(i,1);renderFiles();if(tsToken)document.getElementById('upload-btn').disabled=selectedFiles.length===0}
+    function removeFile(i){selectedFiles.splice(i,1);renderFiles();if(tsToken || !'${siteKey}')document.getElementById('upload-btn').disabled=selectedFiles.length===0}
     function renderFiles(){
       var el=document.getElementById('file-list');
       if(!selectedFiles.length){el.innerHTML='';document.getElementById('file-area').style.display='';return}
@@ -127,7 +129,7 @@ export function renderUploadKeyPage(keyId: string, siteKey: string): string {
     function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 
     async function startUpload(){
-      if(!tsToken||!selectedFiles.length)return;
+      if((!tsToken && '${siteKey}')||!selectedFiles.length)return;
       document.getElementById('upload-btn').classList.add('going');
       document.getElementById('upload-btn').textContent='上传中…';
       document.getElementById('progress-wrap').style.display='';

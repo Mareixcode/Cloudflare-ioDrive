@@ -22,6 +22,7 @@ import { renderPublicUploadPage } from './html/public-upload';
 import { renderDemo } from './html/demo';
 import { renderImgbed } from './html/imgbed';
 import { ensureD1Schema, createMetadataStore } from './metadata-store';
+import { createStorageEngine } from './storage-engine';
 import { webdavRoutes } from './webdav';
 import { randomRoutes, randomAdminRoutes } from './random';
 import { moderationAdminRoutes } from './moderation-admin';
@@ -119,22 +120,32 @@ app.use('/api/*', async (c, next) => {
       });
     }
     
-    if (path === '/api/upload-logs') {
+    if (path === '/api/upload-logs/logs') {
       return c.json({
         logs: [
-          { id: '1', name: 'demo-presentation.pdf', size: 2450000, ip: '192.168.1.1', created_at: d1 },
-          { id: '2', name: 'project-assets.zip', size: 15600000, ip: '192.168.1.2', created_at: d2 },
-          { id: '3', name: 'design-mockup.png', size: 3400000, ip: '192.168.1.3', created_at: d3 }
+          { logKey: 'ul1', name: 'demo-presentation.pdf', size: 2450000, ip: '10.0.0.1', country: 'CN', time: d1, source: 'dashboard' },
+          { logKey: 'ul2', name: 'project-assets.zip', size: 15600000, ip: '10.0.0.2', country: 'US', time: d2, source: 'public' },
+          { logKey: 'ul3', name: 'design-mockup.png', size: 3400000, ip: '10.0.0.3', country: 'JP', time: d3, source: 'upload-key', uploadKeyLabel: '访客上传' }
         ],
         total: 3
+      });
+    }
+
+    if (path === '/api/download/logs') {
+      return c.json({
+        logs: [
+          { logKey: 'dl1', name: 'demo-presentation.pdf', size: 2450000, ip: '10.0.0.4', country: 'SG', time: d1, source: 'r2', completed: true },
+          { logKey: 'dl2', name: 'project-assets.zip', size: 15600000, ip: '10.0.0.5', country: 'HK', time: d2, source: 's3', completed: false }
+        ],
+        total: 2
       });
     }
     
     if (path === '/api/share') {
       return c.json({
         shares: [
-          { id: 'demo1', name: 'demo-presentation.pdf', downloads: 12, created_at: d1, expires_at: null },
-          { id: 'demo2', name: 'project-assets.zip', downloads: 5, created_at: d2, expires_at: new Date(Date.now() + 86400000).toISOString() }
+          { token: 'demo1', key: 'demo-presentation.pdf', name: 'demo-presentation.pdf', downloads: 12, created: d1, expires: null },
+          { token: 'demo2', key: 'project-assets.zip', name: 'project-assets.zip', downloads: 5, created: d2, expires: new Date(Date.now() + 86400000).toISOString() }
         ]
       });
     }
@@ -142,7 +153,8 @@ app.use('/api/*', async (c, next) => {
     if (path === '/api/upload-keys') {
       return c.json({
         keys: [
-          { id: 'key1', name: '访客上传', path: 'uploads/Guest/', uses: 3, created_at: d2 }
+          { id: 'key1', label: '访客上传', path: 'uploads/Guest/', usedCount: 3, created: d2, expires: new Date(Date.now() + 86400000).toISOString(), active: true },
+          { id: 'key2', label: '设计文件收取', path: 'uploads/Design/', usedCount: 15, created: d1, expires: new Date(Date.now() - 86400000).toISOString(), active: false }
         ]
       });
     }
@@ -169,6 +181,30 @@ app.get('/u/:keyId', (c) => c.html(renderUploadKeyPage(c.req.param('keyId'), c.e
 app.get('/upload', (c) => c.html(renderPublicUploadPage(c.env.TURNSTILE_SITE_KEY)));
 app.get('/gallery', (c) => c.html(renderGallery()));
 app.get('/imgbed', (c) => c.html(renderImgbed(c.env.TURNSTILE_SITE_KEY)));
+
+// ── Public Image Stream (For Imgbed / Gallery / PicGo fallbacks) ──
+app.get('/f/:key{.+}', async (c) => {
+  const key = c.req.param('key');
+  const ext = key.split('.').pop()?.toLowerCase() || '';
+  const ALLOWED_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'];
+  if (!ALLOWED_EXTS.includes(ext)) {
+    return c.json({ error: '仅支持图片文件的公开访问' }, 403);
+  }
+  try {
+    const engine = await createStorageEngine(c.env);
+    const obj = await engine.get(key);
+    if (!obj) return c.text('Not Found', 404);
+    return new Response(obj.body, {
+      headers: {
+        'Content-Type': obj.contentType || 'image/jpeg',
+        'Cache-Control': 'public, max-age=31536000',
+      }
+    });
+  } catch (err: any) {
+    console.error('Public fetch error:', err);
+    return c.text('Internal Error', 500);
+  }
+});
 
 // ── API ───────────────────────────────────
 

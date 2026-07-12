@@ -43,7 +43,7 @@ galleryRoutes.get('/list', async (c) => {
       if (r2Domain) {
         url = `https://${r2Domain}/${f.key.split('/').map(encodeURIComponent).join('/')}`;
       } else {
-        url = `${origin}/api/download/url/${f.key}`;
+        url = `${origin}/f/${f.key}`;
       }
       return {
         ...f,

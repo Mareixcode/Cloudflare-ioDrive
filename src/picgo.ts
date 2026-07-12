@@ -104,9 +104,9 @@ picgoRoutes.post('/', async (c) => {
     const encoded = key2.split('/').map(encodeURIComponent).join('/');
     fileUrl = `https://${c.env.R2_PUBLIC_DOMAIN}/${encoded}`;
   } else {
-    // Fallback: ioDrive's redirect route if they haven't configured a public domain but are using the app
+    // Fallback: ioDrive's public stream route if they haven't configured a public domain but are using the app
     const origin = new URL(c.req.url).origin;
-    fileUrl = `${origin}/api/download/url/${key2}`;
+    fileUrl = `${origin}/f/${key2}`;
   }
 
   return c.json({ 
