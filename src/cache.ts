@@ -2,10 +2,10 @@ import type { Env } from './types';
 
 /**
  * 获取站点隔离前缀。
- * 当多个站点共享同一个 KV 命名空间时，用 R2_BUCKET 区分不同站点的缓存。
+ * 当多个站点共享同一个 KV 命名空间时，用 SITE_ID 区分不同站点的缓存。
  */
 function getSitePrefix(env: Env): string {
-  return env.R2_BUCKET || 'default';
+  return env.SITE_ID || 'default';
 }
 
 /**

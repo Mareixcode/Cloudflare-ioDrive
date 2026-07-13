@@ -1,12 +1,11 @@
 // MetadataStore 抽象层
 //
 // 统一管理 ioDrive 的所有元数据（_config/、_shares/、_dl_logs/、_ul_logs/、
-// _upload_keys/、_multipart/、_moderation_logs/），对上层代码屏蔽底层是 R2
-// JSON 文件还是 D1 数据库。
+// _upload_keys/、_multipart/、_moderation_logs/），对上层代码屏蔽底层存储实现。
 //
-// 工厂函数 createMetadataStore(env) 根据 env.META_DB 是否存在自动选择实现：
+// 工厂函数 createMetadataStore(env) 要求 env.META_DB 存在：
 //   - 有 META_DB -> D1MetadataStore
-//   - 无 META_DB -> R2JsonMetadataStore（保持现状，零迁移）
+//   - 无 META_DB -> 抛出错误
 
 import type { Env } from './types';
 
@@ -79,75 +78,10 @@ export interface MetadataStore {
   delete(key: string | string[]): Promise<void>;
   list(prefix: string, options?: ListOptions): Promise<ListResult>;
   /** 返回底层实现标识（R2 / D1） */
-  readonly kind: 'r2' | 'd1';
+  readonly kind: 'd1';
 }
 
-// ── R2 JSON 实现（保持现状行为）────────
 
-export class R2JsonMetadataStore implements MetadataStore {
-  readonly kind = 'r2' as const;
-
-  constructor(private drive: R2Bucket | undefined) {}
-
-  private fullKey(key: string): string {
-    return key.endsWith('.json') ? key : `${key}.json`;
-  }
-
-  private stripSuffix(key: string): string {
-    return key.endsWith('.json') ? key.slice(0, -5) : key;
-  }
-
-  async get<T = unknown>(key: string): Promise<T | null> {
-    if (!this.drive) return null;
-    try {
-      const obj = await this.drive.get(this.fullKey(key));
-      if (!obj) return null;
-      return JSON.parse(await obj.text());
-    } catch {
-      return null;
-    }
-  }
-
-  async put(key: string, value: unknown): Promise<void> {
-    if (!this.drive) throw new Error('R2 binding not configured');
-    await this.drive.put(this.fullKey(key), JSON.stringify(value), {
-      httpMetadata: { contentType: 'application/json' },
-    });
-  }
-
-  async delete(key: string | string[]): Promise<void> {
-    if (!this.drive) return;
-    const keys = (Array.isArray(key) ? key : [key]).map(k => this.fullKey(k));
-    await this.drive.delete(keys as any);
-  }
-
-  async list(prefix: string, options: ListOptions = {}): Promise<ListResult> {
-    if (!this.drive) return { keys: [] };
-    const limit = options.limit ?? 1000;
-    const all: string[] = [];
-    let cursor: string | undefined = options.cursor;
-
-    while (true) {
-      const listed = await this.drive.list({
-        prefix,
-        limit: Math.min(limit - all.length, 1000),
-        cursor,
-      });
-      for (const obj of listed.objects) {
-        all.push(this.stripSuffix(obj.key));
-        if (all.length >= limit) break;
-      }
-      if (listed.truncated && all.length < limit && listed.cursor) {
-        cursor = listed.cursor;
-      } else {
-        cursor = listed.truncated ? listed.cursor : undefined;
-        break;
-      }
-    }
-
-    return { keys: all, cursor };
-  }
-}
 
 // ── D1 实现 ─────────────────────────────
 
@@ -261,10 +195,10 @@ export class D1MetadataStore implements MetadataStore {
 // ── 工厂函数 ─────────────────────────────
 
 export function createMetadataStore(env: Env): MetadataStore {
-  if (env.META_DB) {
-    return new D1MetadataStore(env.META_DB);
+  if (!env.META_DB) {
+    throw new Error('META_DB (D1) binding is required. Please configure [[d1_databases]] in wrangler.toml.');
   }
-  return new R2JsonMetadataStore(env.DRIVE);
+  return new D1MetadataStore(env.META_DB);
 }
 
 // D1 初始化 SQL（内嵌，避免运行时 import ?raw）

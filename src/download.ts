@@ -57,12 +57,12 @@ downloadRoutes.delete('/logs/:logKey{.+}', jwtAuth, async (c) => {
   return c.json({ ok: true });
 });
 
-// ── Dashboard: redirect to R2 (legacy) ─────
+// ── Dashboard: redirect to storage (legacy) ─────
 downloadRoutes.get('/url/:key{.+}', jwtAuth, async (c) => {
   const key = c.req.param('key');
-  const r2Domain = c.env.R2_PUBLIC_DOMAIN;
+  const domain = c.env.PUBLIC_DOMAIN || new URL(c.req.url).host;
   const encoded = key.split('/').map(encodeURIComponent).join('/');
-  return c.redirect('https://' + r2Domain + '/' + encoded, 302);
+  return c.redirect('https://' + domain + '/' + encoded, 302);
 });
 
 // ── Dashboard: presigned URL with tracking (JWT) ──
@@ -78,35 +78,23 @@ downloadRoutes.get('/presign/:key{.+}', jwtAuth, async (c) => {
   const parsed = parseUA(ua);
   const name = key.split('/').pop() || key;
 
-  // 预签名 URL：优先 R2，无 R2 凭证时回退到 S3
+  // 预签名 URL：从 S3 后端生成
   let presignedUrl: string | null = null;
-  let source = 'r2';
+  let source = 's3';
 
-  if (c.env.R2_ACCESS_KEY && c.env.R2_SECRET_KEY && c.env.R2_ACCOUNT_ID) {
-    const r2AccountId = c.env.R2_ACCOUNT_ID;
+  const s3Configs = await getAllS3ConfigsAsync(c.env);
+  if (s3Configs.length > 0) {
+    const cfg = s3Configs[0];
     presignedUrl = await generatePresignedUrl(
-      r2AccountId + '.r2.cloudflarestorage.com',
-      c.env.R2_BUCKET, 'auto',
-      c.env.R2_ACCESS_KEY, c.env.R2_SECRET_KEY,
+      cfg.endpoint, cfg.bucket, cfg.region,
+      cfg.accessKey, cfg.secretKey,
       key, 300, name,
+      cfg.pathStyle,
     );
-  } else {
-    // 回退到 S3 后端
-    const s3Configs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
-    if (s3Configs.length > 0) {
-      const cfg = s3Configs[0];
-      presignedUrl = await generatePresignedUrl(
-        cfg.endpoint, cfg.bucket, cfg.region,
-        cfg.accessKey, cfg.secretKey,
-        key, 300, name,
-        cfg.pathStyle,
-      );
-      source = 's3';
-    }
   }
 
   if (!presignedUrl) {
-    return c.json({ error: '存储凭证未配置（需要 R2 或 S3 凭证）' }, 500);
+    return c.json({ error: '存储凭证未配置（需要配置 S3 兼容后端）' }, 500);
   }
 
   const logEntry: DownloadLogEntry = {
@@ -151,25 +139,10 @@ downloadRoutes.post('/token', async (c) => {
   const head = await engine.head(record.key);
   if (!head) return c.json({ error: '文件不存在' }, 404);
 
-  // R2 presigned URL
-  let r2Url: string | null = null;
-  if (c.env.R2_ACCESS_KEY && c.env.R2_SECRET_KEY && c.env.R2_ACCOUNT_ID) {
-    try {
-      r2Url = await generatePresignedUrl(
-        c.env.R2_ACCOUNT_ID + '.r2.cloudflarestorage.com',
-        c.env.R2_BUCKET || '', 'auto',
-        c.env.R2_ACCESS_KEY, c.env.R2_SECRET_KEY,
-        record.key, 300, record.name,
-      );
-    } catch (e) {
-      console.error('R2 presign error:', e);
-    }
-  }
-
   // S3 presigned URLs (支持多后端 + path-style)
   const s3Urls: { name: string; url: string }[] = [];
   try {
-    const s3Configs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
+    const s3Configs = await getAllS3ConfigsAsync(c.env);
     for (const cfg of s3Configs) {
       try {
         const url = await generatePresignedUrl(
@@ -187,12 +160,8 @@ downloadRoutes.post('/token', async (c) => {
     console.error('S3 presign error:', e);
   }
 
-  // 如果没有 R2 但有 S3，用第一个 S3 作为主下载链接
-  if (!r2Url && s3Urls.length > 0) {
-    r2Url = s3Urls[0].url;
-  }
-
-  if (!r2Url) return c.json({ error: '生成下载链接失败' }, 500);
+  const primaryUrl = s3Urls.length > 0 ? s3Urls[0].url : null;
+  if (!primaryUrl) return c.json({ error: '生成下载链接失败' }, 500);
 
   // Log download with detailed tracking
   const ua = c.req.header('User-Agent') || '';
@@ -206,7 +175,7 @@ downloadRoutes.post('/token', async (c) => {
     country: c.req.header('CF-IPCountry') || '',
     ua,
     shareToken,
-    source: s3Urls.length > 0 ? 'r2+s3' : 'r2',
+    source: 's3',
     referer: c.req.header('Referer') || '',
     browser: parsed.browser,
     os: parsed.os,
@@ -217,7 +186,7 @@ downloadRoutes.post('/token', async (c) => {
   await meta.put(logKey, logEntry);
 
   const s3Url = s3Urls.length > 0 ? s3Urls[0].url : null;
-  return c.json({ r2Url, s3Url, s3Urls, logKey: logKey + '.json', name: record.name, size: head.size });
+  return c.json({ r2Url: primaryUrl, s3Url, s3Urls, logKey: logKey + '.json', name: record.name, size: head.size });
 });
 
 // ── Beacon: update download completion status ──

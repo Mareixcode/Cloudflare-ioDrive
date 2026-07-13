@@ -83,7 +83,7 @@ export function createModerationProvider(cfg: ModerationConfig): ModerationProvi
  * 读取审核配置（默认关闭）
  */
 export async function getModerationConfig(env: Env): Promise<ModerationConfig | null> {
-  if (!env.META_DB && !env.DRIVE) return null;
+  if (!env.META_DB) return null;
   const meta = createMetadataStore(env);
   return await meta.get<ModerationConfig>(MODERATION_CONFIG_KEY);
 }
@@ -120,11 +120,11 @@ export async function moderateAndCleanup(env: Env, info: {
     // 生成可访问的 URL 给 provider 调用
     // 优先用 R2 public domain，否则用 presigned URL
     let fileUrl: string;
-    if (env.R2_PUBLIC_DOMAIN) {
-      fileUrl = `https://${env.R2_PUBLIC_DOMAIN}/${info.key.split('/').map(encodeURIComponent).join('/')}`;
+    if (env.PUBLIC_DOMAIN) {
+      fileUrl = `https://${env.PUBLIC_DOMAIN}/${info.key.split('/').map(encodeURIComponent).join('/')}`;
     } else {
       // 没有 public domain，跳过（避免向 provider 暴露内部 presign 链接）
-      console.warn('Moderation skipped: R2_PUBLIC_DOMAIN not configured');
+      console.warn('Moderation skipped: PUBLIC_DOMAIN not configured');
       return;
     }
 

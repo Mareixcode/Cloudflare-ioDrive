@@ -56,7 +56,7 @@ storageConfigRoutes.get('/backends', async (c) => {
     secretKey: data.credentials[b.name]?.secretKey ? '********' : '',
   }));
 
-  return c.json({ backends, updatedAt: data.updatedAt, r2Available: !!c.env.DRIVE });
+  return c.json({ backends, updatedAt: data.updatedAt });
 });
 
 // ── POST /api/storage/backends — 添加新后端 ──
@@ -272,14 +272,6 @@ storageConfigRoutes.post('/status', async (c) => {
   const start = Date.now();
 
   try {
-    // 检测 R2 内置存储
-    if (name === '_r2_') {
-      if (!c.env.DRIVE) return c.json({ ok: false, error: 'R2 绑定未配置', responseTime: 0 });
-      const listed = await c.env.DRIVE.list({ limit: 1 });
-      const responseTime = Date.now() - start;
-      return c.json({ ok: true, responseTime, fileCount: listed.objects.length > 0 ? '1+' : 0 });
-    }
-
     // 检测 S3 后端
     const meta = createMetadataStore(c.env);
     const data = await loadConfig(meta);

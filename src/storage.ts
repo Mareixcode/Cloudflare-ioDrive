@@ -2,29 +2,7 @@
 import type { Env, StorageBackendConfig } from './types';
 import type { S3Config } from './s3-upload';
 
-// ── 运行时配置缓存 ──────────────────────────
 
-let _runtimeConfig: { backends: StorageBackendConfig[]; credentials: Record<string, { accessKey: string; secretKey: string }> } | null = null;
-
-/**
- * 从 R2 加载运行时存储配置（控制台中配置的）。
- * 如果 R2 中没有配置，返回 null，回退到环境变量。
- */
-export async function loadRuntimeConfig(drive: R2Bucket): Promise<typeof _runtimeConfig> {
-  try {
-    if (_runtimeConfig) return _runtimeConfig;
-    const obj = await drive.get('_config/storage.json');
-    if (!obj) return null;
-    const data = JSON.parse(await obj.text());
-    if (data.backends?.length > 0) {
-      _runtimeConfig = { backends: data.backends, credentials: data.credentials || {} };
-      return _runtimeConfig;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
 
 // ── Provider 预设 ─────────────────────────────
 
@@ -258,8 +236,7 @@ export function getAllBackends(env: Env): StorageBackend[] {
   const backends = parseStorageConfig(env);
   if (backends.length > 0) return backends;
 
-  // 向后兼容：旧的 R2 + 单 S3
-  // R2 不在此处管理（它通过 DRIVE binding 直接使用）
+  // 向后兼容：旧的单 S3
   const legacy = parseLegacyS3(env);
   return legacy ? [legacy] : [];
 }
@@ -315,15 +292,16 @@ export function getLegacyS3Cfg(env: Env): S3Config | null {
  * 获取所有 S3Config 列表（运行时配置 > 环境变量新格式 > 向后兼容旧格式）。
  * 用于上传时遍历所有后端。
  * @param env 环境变量
- * @param drive R2 Bucket binding（可选，用于读取运行时配置）
  */
-export async function getAllS3ConfigsAsync(env: Env, drive?: R2Bucket): Promise<S3Config[]> {
+export async function getAllS3ConfigsAsync(env: Env): Promise<S3Config[]> {
   const configs: S3Config[] = [];
 
-  // 1. 优先从 R2 读取运行时配置
-  if (drive) {
-    const runtime = await loadRuntimeConfig(drive);
-    if (runtime) {
+  // 1. 优先从 D1 读取运行时配置
+  try {
+    const { createMetadataStore } = await import('./metadata-store');
+    const meta = createMetadataStore(env);
+    const runtime = await meta.get<{ backends: StorageBackendConfig[]; credentials: Record<string, { accessKey: string; secretKey: string }> }>('_config/storage');
+    if (runtime && runtime.backends?.length > 0) {
       for (const b of runtime.backends) {
         const cred = runtime.credentials[b.name];
         if (!cred) continue;
@@ -339,7 +317,7 @@ export async function getAllS3ConfigsAsync(env: Env, drive?: R2Bucket): Promise<
       }
       if (configs.length > 0) return configs;
     }
-  }
+  } catch {}
 
   // 2. 回退到环境变量新格式
   const backends = parseStorageConfig(env);

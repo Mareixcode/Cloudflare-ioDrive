@@ -1,10 +1,10 @@
-// 存储引擎抽象层 — 统一 R2 / S3 操作接口
-// R2 可选：当 DRIVE binding 存在时优先使用 R2，否则回退到主 S3 后端
+// 存储引擎抽象层 — 统一 S3 操作接口
 import type { Env, StorageBackendConfig } from './types';
 import type { S3Config } from './s3-upload';
 import { s3PutObject, s3CreateMultipart, s3UploadPart, s3CompleteMultipart } from './s3-upload';
-import { getAllS3ConfigsAsync, detectPathStyle, loadRuntimeConfig } from './storage';
+import { getAllS3ConfigsAsync, detectPathStyle } from './storage';
 import { amzDate, sha256Hex, hmacHex, getSigningKey } from './s3-sign';
+import { createMetadataStore } from './metadata-store';
 
 // ── 列表结果类型 ─────────────────────────────
 
@@ -55,85 +55,7 @@ export interface StorageEngine {
   createMultipartUpload(key: string, options?: { contentType?: string }): Promise<MultipartUpload>;
 }
 
-// ── R2 存储引擎 ──────────────────────────────
 
-class R2StorageEngine implements StorageEngine {
-  constructor(private bucket: R2Bucket) {}
-
-  async list(prefix: string, options?: ListOptions): Promise<ListResult> {
-    const listed = await this.bucket.list({
-      prefix,
-      delimiter: options?.delimiter,
-      limit: options?.limit,
-      cursor: options?.cursor,
-    });
-    return {
-      objects: listed.objects.map(obj => ({
-        key: obj.key,
-        size: obj.size,
-        uploaded: obj.uploaded?.toISOString(),
-        contentType: obj.httpMetadata?.contentType,
-      })),
-      delimitedPrefixes: listed.delimitedPrefixes,
-      truncated: listed.truncated,
-      cursor: listed.truncated ? listed.cursor : undefined,
-    };
-  }
-
-  async get(key: string): Promise<GetResult | null> {
-    const obj = await this.bucket.get(key);
-    if (!obj) return null;
-    return {
-      text: () => obj.text(),
-      arrayBuffer: () => obj.arrayBuffer(),
-      body: obj.body,
-      size: obj.size,
-      httpMetadata: obj.httpMetadata,
-    };
-  }
-
-  async head(key: string): Promise<HeadResult | null> {
-    const obj = await this.bucket.head(key);
-    if (!obj) return null;
-    return {
-      key: obj.key,
-      size: obj.size,
-      contentType: obj.httpMetadata?.contentType,
-      uploaded: obj.uploaded?.toISOString(),
-    };
-  }
-
-  async put(key: string, data: ArrayBuffer | string, options?: { contentType?: string; customMetadata?: Record<string, string> }) {
-    await this.bucket.put(key, data, {
-      httpMetadata: options?.contentType ? { contentType: options.contentType } : undefined,
-      customMetadata: options?.customMetadata,
-    });
-  }
-
-  async delete(key: string | string[]) {
-    if (Array.isArray(key)) {
-      if (key.length > 0) await this.bucket.delete(key);
-    } else {
-      await this.bucket.delete(key);
-    }
-  }
-
-  async createMultipartUpload(key: string, options?: { contentType?: string }): Promise<MultipartUpload> {
-    const mp = await this.bucket.createMultipartUpload(key, {
-      httpMetadata: options?.contentType ? { contentType: options.contentType } : undefined,
-    });
-    return {
-      uploadId: mp.uploadId,
-      key,
-      uploadPart: (partNumber: number, data: ArrayBuffer) => mp.uploadPart(partNumber, data),
-      complete: async (parts) => {
-        const obj = await mp.complete(parts);
-        return { key: obj.key, size: obj.size };
-      },
-      abort: () => mp.abort(),
-    };
-  }
-}
 
 // ── S3 存储引擎 ──────────────────────────────
 
@@ -381,29 +303,16 @@ class S3StorageEngine implements StorageEngine {
 
 /**
  * 创建存储引擎实例。
- * 优先使用 R2 binding，回退到主 S3 后端。
  */
 export async function createStorageEngine(env: Env): Promise<StorageEngine> {
-  // 优先使用 R2
-  if (env.DRIVE) {
-    return new R2StorageEngine(env.DRIVE);
-  }
-
-  // 回退到 S3
-  const s3Cfgs = await getAllS3ConfigsAsync(env, env.DRIVE);
+  const s3Cfgs = await getAllS3ConfigsAsync(env);
   if (s3Cfgs.length > 0) {
     return new S3StorageEngine(s3Cfgs[0]);
   }
-
-  throw new Error('没有可用的存储后端：请配置 R2 或 S3 兼容存储');
+  throw new Error('没有可用的存储后端：请在控制台中配置 S3 兼容存储');
 }
 
-/**
- * 创建 R2 引擎（仅在确认 DRIVE 存在时使用）。
- */
-export function createR2Engine(drive: R2Bucket): StorageEngine {
-  return new R2StorageEngine(drive);
-}
+
 
 /**
  * 创建 S3 引擎。
@@ -414,18 +323,16 @@ export function createS3Engine(cfg: S3Config): StorageEngine {
 
 /**
  * 根据后端名称创建存储引擎。
- * 'r2' 或空字符串 → R2 引擎；其他名称 → 从运行时配置中查找对应的 S3 后端。
  */
 export async function createStorageEngineForBackend(env: Env, backendName: string): Promise<StorageEngine> {
-  // R2 内置存储
-  if (!backendName || backendName === 'r2') {
-    if (env.DRIVE) return new R2StorageEngine(env.DRIVE);
+  if (!backendName) {
     return createStorageEngine(env);
   }
 
-  // 从 R2 运行时配置中查找 S3 后端
-  if (env.DRIVE) {
-    const runtime = await loadRuntimeConfig(env.DRIVE);
+  // 从 D1 运行时配置中查找 S3 后端
+  try {
+    const meta = createMetadataStore(env);
+    const runtime = await meta.get<{ backends: import('./types').StorageBackendConfig[]; credentials: Record<string, { accessKey: string; secretKey: string }> }>('_config/storage');
     if (runtime) {
       const backend = runtime.backends.find(b => b.name === backendName);
       if (backend) {
@@ -443,11 +350,8 @@ export async function createStorageEngineForBackend(env: Env, backendName: strin
         }
       }
     }
-  }
+  } catch {}
 
-  // 回退：从环境变量配置中查找
-  const allCfgs = await getAllS3ConfigsAsync(env, env.DRIVE);
-  // 按名称匹配（环境变量配置中的后端名来自 STORAGE_CONFIG 的 name 字段）
-  // 这里无法直接按名称匹配，回退到默认引擎
+  // 回退到默认引擎
   return createStorageEngine(env);
 }

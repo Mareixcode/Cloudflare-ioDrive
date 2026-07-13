@@ -53,8 +53,8 @@ imgbedRoutes.post('/upload', async (c) => {
   await engine.put(key, buf, { contentType });
 
   // 同步到其他 S3 后端
-  const s3Cfgs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
-  const syncCfgs = c.env.DRIVE ? s3Cfgs : s3Cfgs.slice(1);
+  const s3Cfgs = await getAllS3ConfigsAsync(c.env);
+  const syncCfgs = s3Cfgs.slice(1);
   for (const s3cfg of syncCfgs) {
     try { await s3PutObject(s3cfg, key, buf, contentType); } catch (e) { console.error('S3 sync error:', e); }
   }
@@ -85,9 +85,9 @@ imgbedRoutes.post('/upload', async (c) => {
 
   // 构建外链 URL
   let fileUrl = '';
-  if (c.env.R2_PUBLIC_DOMAIN) {
+  if (c.env.PUBLIC_DOMAIN) {
     const encoded = key.split('/').map(encodeURIComponent).join('/');
-    fileUrl = `https://${c.env.R2_PUBLIC_DOMAIN}/${encoded}`;
+    fileUrl = `https://${c.env.PUBLIC_DOMAIN}/${encoded}`;
   } else {
     const origin = new URL(c.req.url).origin;
     fileUrl = `${origin}/f/${key}`;
@@ -109,8 +109,8 @@ imgbedRoutes.get('/list', jwtAuth, async (c) => {
       })
       .map((obj) => {
         let url = '';
-        if (c.env.R2_PUBLIC_DOMAIN) {
-          url = `https://${c.env.R2_PUBLIC_DOMAIN}/${obj.key.split('/').map(encodeURIComponent).join('/')}`;
+        if (c.env.PUBLIC_DOMAIN) {
+          url = `https://${c.env.PUBLIC_DOMAIN}/${obj.key.split('/').map(encodeURIComponent).join('/')}`;
         } else {
           const origin = new URL(c.req.url).origin;
           url = `${origin}/f/${obj.key}`;

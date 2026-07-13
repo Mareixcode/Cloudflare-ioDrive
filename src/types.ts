@@ -1,9 +1,6 @@
 export interface Env {
-  // Bindings (R2 可选：不配置 [[r2_buckets]] 时为 undefined)
-  DRIVE?: R2Bucket;
-
-  // D1 元数据库（可选：未配置时回退到 R2 JSON 文件存储）
-  META_DB?: D1Database;
+  // D1 元数据库（必需）
+  META_DB: D1Database;
 
   // KV 缓存命名空间（可选，用于文件索引缓存）
   CACHE_KV?: KVNamespace;
@@ -17,13 +14,9 @@ export interface Env {
   ADMIN_USER: string;
   ADMIN_PASS: string;       // set via wrangler secret
   JWT_SECRET: string;
-  R2_PUBLIC_DOMAIN: string;
-  R2_BUCKET: string;
-  R2_ACCOUNT_ID: string;
+  PUBLIC_DOMAIN?: string;    // 公开访问域名（可选，用于图床/内容审核等公开 URL 生成）
   TURNSTILE_SITE_KEY: string;
   TURNSTILE_SECRET: string;
-  R2_ACCESS_KEY: string;
-  R2_SECRET_KEY: string;
   PUBLIC_UPLOAD_PATH?: string;
 
   // Legacy single S3 (向后兼容)
@@ -45,6 +38,9 @@ export interface Env {
   // 随机图片 API（可选）
   RANDOM_ENABLED?: string;        // 'true' 启用
   RANDOM_ALLOWED_DIRS?: string;   // CSV，留空 = 允许 uploads/ 下所有目录
+
+  // 站点标识（用于 KV 缓存隔离，替代原 R2_BUCKET）
+  SITE_ID?: string;
 }
 
 // 多后端存储配置

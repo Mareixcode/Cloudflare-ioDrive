@@ -35,7 +35,7 @@ galleryRoutes.get('/list', async (c) => {
       .sort((a, b) => new Date(b.uploaded).getTime() - new Date(a.uploaded).getTime());
 
     // We can also return public URLs directly to make it easier for the frontend
-    let r2Domain = c.env.R2_PUBLIC_DOMAIN;
+    let r2Domain = c.env.PUBLIC_DOMAIN;
     const origin = new URL(c.req.url).origin;
 
     const items = files.map(f => {

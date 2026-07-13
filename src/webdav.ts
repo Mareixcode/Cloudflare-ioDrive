@@ -90,8 +90,8 @@ async function internalFetch(env: Env, path: string, init: RequestInit = {}): Pr
   // 走 self fetch：使用同请求的 origin，保持内部调用一致性
   // （WebDAV PUT/DELETE 等方法在 Hono 内可考虑直接复用 service 函数，但保持一致
   //  性：仍走 HTTP API 以触发上传同步、日志、D1 抽象等）
-  const selfUrl = env.R2_PUBLIC_DOMAIN
-    ? `https://${env.R2_PUBLIC_DOMAIN}`
+  const selfUrl = env.PUBLIC_DOMAIN
+    ? `https://${env.PUBLIC_DOMAIN}`
     : 'http://localhost:8787';
   return await fetch(selfUrl + path, {
     ...init,

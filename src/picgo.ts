@@ -64,8 +64,8 @@ picgoRoutes.post('/', async (c) => {
   await engine.put(key2, buf, { contentType });
 
   // Sync to other S3 backends
-  const s3Cfgs = await getAllS3ConfigsAsync(c.env, c.env.DRIVE);
-  const syncCfgs = c.env.DRIVE ? s3Cfgs : s3Cfgs.slice(1);
+  const s3Cfgs = await getAllS3ConfigsAsync(c.env);
+  const syncCfgs = s3Cfgs.slice(1);
   let s3Ok = false;
   for (const s3cfg of syncCfgs) {
     try { 
@@ -100,9 +100,9 @@ picgoRoutes.post('/', async (c) => {
   c.executionCtx.waitUntil(clearFileCache(c.env, '', key2));
 
   let fileUrl = '';
-  if (c.env.R2_PUBLIC_DOMAIN) {
+  if (c.env.PUBLIC_DOMAIN) {
     const encoded = key2.split('/').map(encodeURIComponent).join('/');
-    fileUrl = `https://${c.env.R2_PUBLIC_DOMAIN}/${encoded}`;
+    fileUrl = `https://${c.env.PUBLIC_DOMAIN}/${encoded}`;
   } else {
     // Fallback: ioDrive's public stream route if they haven't configured a public domain but are using the app
     const origin = new URL(c.req.url).origin;

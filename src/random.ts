@@ -119,7 +119,7 @@ randomRoutes.get('/', async (c) => {
   const picked = filtered[Math.floor(Math.random() * filtered.length)];
 
   // 6. 响应格式
-  const r2Domain = c.env.R2_PUBLIC_DOMAIN || (new URL(c.req.url).host);
+  const r2Domain = c.env.PUBLIC_DOMAIN || (new URL(c.req.url).host);
   const urlPath = '/' + picked.key.split('/').map(encodeURIComponent).join('/');
 
   if (form === 'text') {
