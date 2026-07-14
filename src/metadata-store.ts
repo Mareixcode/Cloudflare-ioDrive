@@ -201,28 +201,14 @@ export function createMetadataStore(env: Env): MetadataStore {
   return new D1MetadataStore(env.META_DB);
 }
 
-// D1 初始化 SQL（内嵌，避免运行时 import ?raw）
-const D1_INIT_SQL = `
-CREATE TABLE IF NOT EXISTS kv (
-    id          TEXT PRIMARY KEY,
-    category    TEXT NOT NULL,
-    value       TEXT NOT NULL,
-    created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
-    updated_at  INTEGER NOT NULL DEFAULT (unixepoch()),
-    expires_at  INTEGER,
-    key_path    TEXT,
-    time_ms     INTEGER,
-    ip          TEXT,
-    label       TEXT
-)
-`;
+const D1_INIT_SQL = "CREATE TABLE IF NOT EXISTS kv (id TEXT PRIMARY KEY, category TEXT NOT NULL, value TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT (unixepoch()), updated_at INTEGER NOT NULL DEFAULT (unixepoch()), expires_at INTEGER, key_path TEXT, time_ms INTEGER, ip TEXT, label TEXT);";
 
 const D1_INIT_INDEXES = [
-  'CREATE INDEX IF NOT EXISTS idx_kv_category       ON kv(category)',
-  'CREATE INDEX IF NOT EXISTS idx_kv_category_time  ON kv(category, time_ms DESC)',
-  'CREATE INDEX IF NOT EXISTS idx_kv_category_key   ON kv(category, key_path)',
-  'CREATE INDEX IF NOT EXISTS idx_kv_expires        ON kv(expires_at) WHERE expires_at IS NOT NULL',
-  'CREATE INDEX IF NOT EXISTS idx_kv_label          ON kv(label) WHERE label IS NOT NULL',
+  'CREATE INDEX IF NOT EXISTS idx_kv_category       ON kv(category);',
+  'CREATE INDEX IF NOT EXISTS idx_kv_category_time  ON kv(category, time_ms DESC);',
+  'CREATE INDEX IF NOT EXISTS idx_kv_category_key   ON kv(category, key_path);',
+  'CREATE INDEX IF NOT EXISTS idx_kv_expires        ON kv(expires_at) WHERE expires_at IS NOT NULL;',
+  'CREATE INDEX IF NOT EXISTS idx_kv_label          ON kv(label) WHERE label IS NOT NULL;',
 ];
 
 let initPromise: Promise<void> | null = null;
