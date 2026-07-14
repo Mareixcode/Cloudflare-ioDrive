@@ -1312,6 +1312,7 @@ npm run deploy
 - [x] 多后端存储状态检测
 - [x] 多后端文件浏览切换
 - [x] 可配置管理员账号密码
+- [x] 图床功能（一键复制 Markdown / BBCode）
 
 ### 🚧 计划中
 
@@ -1321,7 +1322,6 @@ npm run deploy
 - [ ] 多用户系统（多管理员 + 权限控制）
 - [ ] OAuth 登录（GitHub / Google）
 - [ ] API Token（程序化访问）
-- [ ] 图床功能（一键复制 Markdown / BBCode）
 - [ ] 文件直链管理
 - [ ] Webhook 通知（上传/下载事件通知）
 - [ ] 国际化 i18n（English / 日本語）

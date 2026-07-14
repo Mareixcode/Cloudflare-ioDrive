@@ -1323,6 +1323,7 @@ npm run deploy:demo
 - [x] Multi-backend storage status detection
 - [x] Multi-backend file browsing
 - [x] Configurable admin account credentials
+- [x] Image hosting mode (one-click Markdown / BBCode copy)
 
 ### 🚧 Planned
 
@@ -1332,7 +1333,6 @@ npm run deploy:demo
 - [ ] Multi-user system (multiple admins + permissions)
 - [ ] OAuth login (GitHub / Google)
 - [ ] API tokens (programmatic access)
-- [ ] Image hosting mode (one-click Markdown / BBCode copy)
 - [ ] Direct link management
 - [ ] Webhook notifications (upload/download events)
 - [ ] Internationalization i18n (more languages)
