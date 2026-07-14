@@ -62,11 +62,18 @@ export function renderLogin(siteKey: string): string {
     async function doLogin(){
       const u=document.getElementById('username').value,p=document.getElementById('password').value,e=document.getElementById('login-error'),b=document.getElementById('login-btn');
       if(!u||!p){e.textContent='请输入用户名和密码';e.style.display='block';return}
-      if(!tsToken && '${siteKey}'){e.textContent='请先完成验证';e.style.display='block';return}
+      const reqTs = '${siteKey}' && '${siteKey}' !== 'undefined';
+      if(reqTs && !tsToken){e.textContent='请先完成验证';e.style.display='block';return}
       b.disabled=true;b.textContent='登录中…';e.style.display='none';
-      try{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p,turnstile:tsToken})});const d=await r.json();
-      if(d.token){localStorage.setItem('iodrive_token',d.token);location.href='/dashboard'}else{e.textContent=d.error||'登录失败，请重试';e.style.display='block';b.disabled=false;b.textContent='登录'}}
-      catch(x){e.textContent='网络异常，请检查连接';e.style.display='block';b.disabled=false;b.textContent='登录'}
+      try{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p,turnstile:tsToken})});
+      if(!r.ok && r.status >= 500) throw new Error('ServerError');
+      const d=await r.json();
+      if(d.token){
+        try { localStorage.setItem('iodrive_token',d.token); }
+        catch(e) { alert('无法保存登录状态，请检查是否禁用了Cookie或本地存储。'); return; }
+        location.href='/dashboard';
+      }else{e.textContent=d.error||'登录失败，请重试';e.style.display='block';b.disabled=false;b.textContent='登录'}}
+      catch(x){console.error(x);e.textContent='网络异常，请检查连接';e.style.display='block';b.disabled=false;b.textContent='登录'}
     }
     document.getElementById('login-btn').onclick=doLogin;
     document.getElementById('password').onkeydown=function(e){if(e.key==='Enter')doLogin()};

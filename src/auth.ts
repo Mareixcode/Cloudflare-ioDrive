@@ -83,13 +83,15 @@ authRoutes.post('/login', async (c) => {
   const { username, password, turnstile } = body;
 
   // Verify Turnstile
-  if (!turnstile) {
-    return c.json({ error: '请完成人机验证' }, 400);
-  }
+  if (c.env.TURNSTILE_SECRET) {
+    if (!turnstile) {
+      return c.json({ error: '请完成人机验证' }, 400);
+    }
 
-  const turnstileValid = await verifyTurnstile(turnstile, c.env.TURNSTILE_SECRET, ip);
-  if (!turnstileValid) {
-    return c.json({ error: '人机验证失败，请重试' }, 403);
+    const turnstileValid = await verifyTurnstile(turnstile, c.env.TURNSTILE_SECRET, ip);
+    if (!turnstileValid) {
+      return c.json({ error: '人机验证失败，请重试' }, 403);
+    }
   }
 
   const valid = await verifyCredentials(c.env, username, password);
