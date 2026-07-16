@@ -173,6 +173,17 @@ jobs:
           EOF
           fi
 
+          # 追加 META_DB (D1) 绑定（如果 Secrets 中配置了 META_DB_ID）
+          if [ -n "${{ secrets.META_DB_ID }}" ]; then
+            cat >> wrangler.toml <<EOF
+
+          [[d1_databases]]
+          binding = "META_DB"
+          database_name = "iodrive-meta"
+          database_id = "${{ secrets.META_DB_ID }}"
+          EOF
+          fi
+
           # 追加 Rate Limiter 限流绑定
           cat >> wrangler.toml <<EOF
 
