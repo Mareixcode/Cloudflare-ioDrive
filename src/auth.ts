@@ -30,11 +30,17 @@ async function saveAdminConfig(meta: MetadataStore, config: AdminConfig): Promis
 
 // 验证凭证：优先 R2/D1 自定义配置，回退到环境变量
 async function verifyCredentials(env: Env, username: string, password: string): Promise<boolean> {
-  const meta = createMetadataStore(env);
-  const adminConfig = await loadAdminConfig(meta);
-  if (adminConfig) {
-    const hash = await sha256Hex(password);
-    return username === adminConfig.username && hash === adminConfig.passwordHash;
+  try {
+    if (env.META_DB) {
+      const meta = createMetadataStore(env);
+      const adminConfig = await loadAdminConfig(meta);
+      if (adminConfig) {
+        const hash = await sha256Hex(password);
+        return username === adminConfig.username && hash === adminConfig.passwordHash;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to verify via D1, falling back to env vars:', err);
   }
   // 回退到环境变量
   return username === env.ADMIN_USER && password === env.ADMIN_PASS;
@@ -116,6 +122,9 @@ authRoutes.post('/login', async (c) => {
 
 // GET /api/auth/admin-config — 获取管理员配置信息
 authRoutes.get('/admin-config', jwtAuth, async (c) => {
+  if (!c.env.META_DB) {
+    return c.json({ username: c.env.ADMIN_USER, hasCustomConfig: false });
+  }
   const meta = createMetadataStore(c.env);
   const adminConfig = await loadAdminConfig(meta);
   const username = adminConfig?.username || c.env.ADMIN_USER;
@@ -124,6 +133,9 @@ authRoutes.get('/admin-config', jwtAuth, async (c) => {
 
 // PUT /api/auth/admin-config — 修改管理员账号密码
 authRoutes.put('/admin-config', jwtAuth, async (c) => {
+  if (!c.env.META_DB) {
+    return c.json({ error: '当前环境未开启 D1 数据库，无法修改账号配置' }, 400);
+  }
   const body = await c.req.json<{ username?: string; currentPassword: string; newPassword: string }>();
   const { username, currentPassword, newPassword } = body;
 
