@@ -136,7 +136,6 @@ jobs:
         run: |
           if [ -n "${{ secrets.ADMIN_PASS }}" ]; then echo "${{ secrets.ADMIN_PASS }}" | npx wrangler secret put ADMIN_PASS; fi
           if [ -n "${{ secrets.TURNSTILE_SECRET }}" ]; then echo "${{ secrets.TURNSTILE_SECRET }}" | npx wrangler secret put TURNSTILE_SECRET; fi
-          if [ -n "${{ secrets.TURNSTILE_SITE_KEY }}" ]; then echo "${{ secrets.TURNSTILE_SITE_KEY }}" | npx wrangler secret put TURNSTILE_SITE_KEY; fi
           if [ -n "${{ secrets.JWT_SECRET }}" ]; then echo "${{ secrets.JWT_SECRET }}" | npx wrangler secret put JWT_SECRET; fi
           if [ -n "${{ secrets.R2_ACCESS_KEY }}" ]; then echo "${{ secrets.R2_ACCESS_KEY }}" | npx wrangler secret put R2_ACCESS_KEY; fi
           if [ -n "${{ secrets.R2_SECRET_KEY }}" ]; then echo "${{ secrets.R2_SECRET_KEY }}" | npx wrangler secret put R2_SECRET_KEY; fi
@@ -270,7 +269,6 @@ jobs:
         run: |
           if [ -n "${{ secrets.ADMIN_PASS }}" ]; then echo "${{ secrets.ADMIN_PASS }}" | npx wrangler secret put ADMIN_PASS; fi
           if [ -n "${{ secrets.TURNSTILE_SECRET }}" ]; then echo "${{ secrets.TURNSTILE_SECRET }}" | npx wrangler secret put TURNSTILE_SECRET; fi
-          if [ -n "${{ secrets.TURNSTILE_SITE_KEY }}" ]; then echo "${{ secrets.TURNSTILE_SITE_KEY }}" | npx wrangler secret put TURNSTILE_SITE_KEY; fi
           if [ -n "${{ secrets.JWT_SECRET }}" ]; then echo "${{ secrets.JWT_SECRET }}" | npx wrangler secret put JWT_SECRET; fi
           if [ -n "${{ secrets.R2_ACCESS_KEY }}" ]; then echo "${{ secrets.R2_ACCESS_KEY }}" | npx wrangler secret put R2_ACCESS_KEY; fi
           if [ -n "${{ secrets.R2_SECRET_KEY }}" ]; then echo "${{ secrets.R2_SECRET_KEY }}" | npx wrangler secret put R2_SECRET_KEY; fi
