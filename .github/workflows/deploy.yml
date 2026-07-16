@@ -94,6 +94,17 @@ jobs:
           EOF
           fi
 
+          # Append META_DB (D1) if secret is present
+          if [ -n "${{ secrets.META_DB_ID }}" ]; then
+            cat >> wrangler.toml <<'EOF'
+
+          [[d1_databases]]
+          binding = "META_DB"
+          database_name = "iodrive-meta"
+          database_id = "${{ secrets.META_DB_ID }}"
+          EOF
+          fi
+
           # Append RATE_LIMITER rate limit config
           cat >> wrangler.toml <<'EOF'
 
@@ -200,6 +211,17 @@ jobs:
           [[kv_namespaces]]
           binding = "CACHE_KV"
           id = "${{ secrets.CACHE_KV_ID }}"
+          EOF
+          fi
+
+          # Append META_DB (D1) if secret is present
+          if [ -n "${{ secrets.META_DB_ID }}" ]; then
+            cat >> wrangler.toml <<'EOF'
+
+          [[d1_databases]]
+          binding = "META_DB"
+          database_name = "iodrive-meta"
+          database_id = "${{ secrets.META_DB_ID }}"
           EOF
           fi
 
