@@ -252,7 +252,7 @@ jobs:
       - name: Create secrets file
         run: |
           cat > .dev.vars <<'EOF'
-          ADMIN_PASS=${{ secrets.ADMIN_PASS }}
+          ADMIN_PASS=admin
           TURNSTILE_SECRET=${{ secrets.TURNSTILE_SECRET }}
           TURNSTILE_SITE_KEY=${{ secrets.TURNSTILE_SITE_KEY }}
           JWT_SECRET=${{ secrets.JWT_SECRET }}
@@ -267,7 +267,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          if [ -n "${{ secrets.ADMIN_PASS }}" ]; then echo "${{ secrets.ADMIN_PASS }}" | npx wrangler secret put ADMIN_PASS; fi
+          echo "admin" | npx wrangler secret put ADMIN_PASS
           if [ -n "${{ secrets.TURNSTILE_SECRET }}" ]; then echo "${{ secrets.TURNSTILE_SECRET }}" | npx wrangler secret put TURNSTILE_SECRET; fi
           if [ -n "${{ secrets.JWT_SECRET }}" ]; then echo "${{ secrets.JWT_SECRET }}" | npx wrangler secret put JWT_SECRET; fi
           if [ -n "${{ secrets.R2_ACCESS_KEY }}" ]; then echo "${{ secrets.R2_ACCESS_KEY }}" | npx wrangler secret put R2_ACCESS_KEY; fi
