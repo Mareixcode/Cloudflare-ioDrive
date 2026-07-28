@@ -1366,7 +1366,7 @@ npm run deploy
 ## 📬 联系方式
 
 * ​**开发者**​: MareixHunk
-* ​**Email**​: [ceohunk@gmail.com](mailto:ericterminal@gmail.com)
+* ​**Email**​: [ceohunk@gmail.com](mailto:ceohunk@gmail.com)
 * ​**GitHub**​: [MareixHunk](https://github.com/Mareixcode)
 
 ## 📜 License

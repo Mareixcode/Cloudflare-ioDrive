@@ -131,7 +131,7 @@ jobs:
           main = "src/index.ts"
           compatibility_date = "2024-12-01"
           account_id = "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
-          custom_domains = ["${{ inputs.route_prefix }}.${{ inputs.domain }}"]
+          routes = [{ pattern = "${{ inputs.route_prefix }}.${{ inputs.domain }}/*", zone_name = "${{ inputs.domain }}" }]
 
           [vars]
           ADMIN_USER = "${{ inputs.admin_user }}"
