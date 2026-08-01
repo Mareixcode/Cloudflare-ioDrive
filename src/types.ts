@@ -2,6 +2,9 @@ export interface Env {
   // D1 元数据库（必需）
   META_DB: D1Database;
 
+  // R2 存储桶绑定（可选，存在时优先使用 R2）
+  DRIVE?: R2Bucket;
+
   // KV 缓存命名空间（可选，用于文件索引缓存）
   CACHE_KV?: KVNamespace;
 
@@ -15,6 +18,7 @@ export interface Env {
   ADMIN_PASS: string;       // set via wrangler secret
   JWT_SECRET: string;
   PUBLIC_DOMAIN?: string;    // 公开访问域名（可选，用于图床/内容审核等公开 URL 生成）
+  R2_PUBLIC_DOMAIN?: string; // R2 公开访问域名（可选，用于生成 R2 直链下载 URL）
   TURNSTILE_SITE_KEY: string;
   TURNSTILE_SECRET: string;
   PUBLIC_UPLOAD_PATH?: string;
