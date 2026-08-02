@@ -14,7 +14,7 @@ export function renderDashboard(isDemo: boolean = false): string {
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--text);background:var(--bg);transition:background .35s,color .35s}
     .layout{display:flex;height:100vh;overflow:hidden}
-    .side{width:220px;background:var(--card);border-right:1px solid var(--border);padding:20px 0;display:flex;flex-direction:column;transition:background .35s,border .35s,transform .3s cubic-bezier(.34,1.56,.64,1);flex-shrink:0;z-index:50}
+    .side{width:220px;background:var(--card);border-right:1px solid var(--border);padding:20px 0;display:flex;flex-direction:column;transition:background .35s,border .35s,transform .3s cubic-bezier(.22,.61,.36,1);flex-shrink:0;z-index:50}
     .side-logo{display:flex;align-items:center;gap:8px;padding:4px 20px 24px;font-size:17px;font-weight:700;color:var(--text)}
     .side-logo svg{width:26px;height:26px;transition:transform .4s cubic-bezier(.34,1.56,.64,1)}
     .side-logo:hover svg{transform:rotate(-10deg) scale(1.12)}
@@ -202,7 +202,7 @@ export function renderDashboard(isDemo: boolean = false): string {
 
     /* ── Small tablet / landscape phone (≤768px) ── */
     @media(max-width:768px){
-      .side{position:fixed;left:0;top:0;bottom:0;transform:translateX(-100%);box-shadow:4px 0 20px rgba(0,0,0,0.15);visibility:hidden;transition:background .35s,border .35s,transform .3s cubic-bezier(.34,1.56,.64,1),visibility .3s}
+      .side{position:fixed;left:0;top:0;bottom:0;transform:translateX(-100%);box-shadow:4px 0 20px rgba(0,0,0,0.15);visibility:hidden;transition:background .35s,border .35s,transform .3s cubic-bezier(.22,.61,.36,1),visibility .3s}
       .side.open{transform:translateX(0);visibility:visible}
       [data-glass="true"] .side{backdrop-filter:none !important;-webkit-backdrop-filter:none !important}
       [data-glass="true"] .side.open{backdrop-filter:blur(24px) saturate(1.5) !important;-webkit-backdrop-filter:blur(24px) saturate(1.5) !important}
