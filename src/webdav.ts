@@ -44,31 +44,54 @@ function decodeKey(rawPath: string): string {
 
 // ── HTTP Basic 鉴权 ─────────────────────
 
+async function constantTimeEqual(left: string, right: string): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const [leftHash, rightHash] = await Promise.all([
+    crypto.subtle.digest('SHA-256', encoder.encode(left)),
+    crypto.subtle.digest('SHA-256', encoder.encode(right)),
+  ]);
+  const leftBytes = new Uint8Array(leftHash);
+  const rightBytes = new Uint8Array(rightHash);
+  let diff = 0;
+  for (let i = 0; i < leftBytes.length; i++) {
+    diff |= leftBytes[i] ^ rightBytes[i];
+  }
+  return diff === 0;
+}
+
 async function checkBasicAuth(c: any): Promise<boolean> {
   if (c.env.WEBDAV_ENABLED !== 'true') return false;
+  if (!c.env.WEBDAV_USER || !c.env.WEBDAV_PASS) return false;
   const auth = c.req.header('Authorization');
   if (!auth?.startsWith('Basic ')) return false;
   try {
-    const decoded = atob(auth.slice(6));
+    const decodedBytes = Uint8Array.from(atob(auth.slice(6)), char => char.charCodeAt(0));
+    const decoded = new TextDecoder().decode(decodedBytes);
     const idx = decoded.indexOf(':');
     if (idx === -1) return false;
     const u = decoded.slice(0, idx);
     const p = decoded.slice(idx + 1);
-    return u === c.env.WEBDAV_USER && p === c.env.WEBDAV_PASS;
+    const [userMatches, passwordMatches] = await Promise.all([
+      constantTimeEqual(u, c.env.WEBDAV_USER),
+      constantTimeEqual(p, c.env.WEBDAV_PASS),
+    ]);
+    return userMatches && passwordMatches;
   } catch {
     return false;
   }
 }
 
-function requireAuth(c: any): Response | null {
+async function requireAuth(c: any): Promise<Response | null> {
   if (c.env.WEBDAV_ENABLED !== 'true') {
     return c.text('WebDAV disabled', 403);
   }
-  const auth = c.req.header('Authorization');
-  if (!auth?.startsWith('Basic ')) {
+  if (!(await checkBasicAuth(c))) {
     return new Response('Auth required', {
       status: 401,
-      headers: { 'WWW-Authenticate': 'Basic realm="ioDrive"' },
+      headers: {
+        'WWW-Authenticate': 'Basic realm="ioDrive", charset="UTF-8"',
+        'Cache-Control': 'no-store',
+      },
     });
   }
   return null;
@@ -114,7 +137,7 @@ webdavRoutes.use('*', async (c, next) => {
 // ── OPTIONS ─────────────────────────
 
 webdavRoutes.on('OPTIONS', '*', async (c) => {
-  const authErr = requireAuth(c);
+  const authErr = await requireAuth(c);
   if (authErr) return authErr;
   return new Response(null, {
     status: 200,
@@ -129,7 +152,7 @@ webdavRoutes.on('OPTIONS', '*', async (c) => {
 // ── PROPFIND ─────────────────────────
 
 webdavRoutes.on('PROPFIND', '*', async (c) => {
-  const authErr = requireAuth(c);
+  const authErr = await requireAuth(c);
   if (authErr) return authErr;
 
   let key: string;
@@ -212,7 +235,7 @@ webdavRoutes.on('PROPFIND', '*', async (c) => {
 // ── GET ─────────────────────────────
 
 webdavRoutes.get('*', async (c) => {
-  const authErr = requireAuth(c);
+  const authErr = await requireAuth(c);
   if (authErr) return authErr;
 
   let key: string;
@@ -250,7 +273,7 @@ webdavRoutes.get('*', async (c) => {
 // ── PUT ─────────────────────────────
 
 webdavRoutes.put('*', async (c) => {
-  const authErr = requireAuth(c);
+  const authErr = await requireAuth(c);
   if (authErr) return authErr;
 
   let key: string;
@@ -298,7 +321,7 @@ webdavRoutes.put('*', async (c) => {
 // ── DELETE ──────────────────────────
 
 webdavRoutes.delete('*', async (c) => {
-  const authErr = requireAuth(c);
+  const authErr = await requireAuth(c);
   if (authErr) return authErr;
 
   let key: string;
@@ -324,7 +347,7 @@ webdavRoutes.delete('*', async (c) => {
 // ── MKCOL ───────────────────────────
 
 webdavRoutes.on('MKCOL', '*', async (c) => {
-  const authErr = requireAuth(c);
+  const authErr = await requireAuth(c);
   if (authErr) return authErr;
 
   let key: string;
@@ -353,7 +376,7 @@ webdavRoutes.on('MKCOL', '*', async (c) => {
 // ── MOVE ────────────────────────────
 
 webdavRoutes.on('MOVE', '*', async (c) => {
-  const authErr = requireAuth(c);
+  const authErr = await requireAuth(c);
   if (authErr) return authErr;
 
   let srcKey: string;
@@ -392,7 +415,7 @@ webdavRoutes.on('MOVE', '*', async (c) => {
 // ── COPY ────────────────────────────
 
 webdavRoutes.on('COPY', '*', async (c) => {
-  const authErr = requireAuth(c);
+  const authErr = await requireAuth(c);
   if (authErr) return authErr;
 
   let srcKey: string;
@@ -433,7 +456,7 @@ webdavRoutes.on('COPY', '*', async (c) => {
 // ── PROPPATCH (no-op) ───────────────
 
 webdavRoutes.on('PROPPATCH', '*', async (c) => {
-  const authErr = requireAuth(c);
+  const authErr = await requireAuth(c);
   if (authErr) return authErr;
   return new Response(propstatOk(c.req.path), {
     status: 207,

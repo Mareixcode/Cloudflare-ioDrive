@@ -21,7 +21,7 @@ import { renderUploadKeyPage } from './html/upload-key';
 import { renderPublicUploadPage } from './html/public-upload';
 import { renderDemo } from './html/demo';
 import { renderImgbed } from './html/imgbed';
-import { ensureD1Schema, createMetadataStore } from './metadata-store';
+import { ensureD1Schema } from './metadata-store';
 import { createStorageEngine } from './storage-engine';
 import { webdavRoutes } from './webdav';
 import { randomRoutes, randomAdminRoutes } from './random';
@@ -175,7 +175,14 @@ app.use('/api/*', async (c, next) => {
 app.get('/login', (c) => c.html(renderLogin(c.env.TURNSTILE_SITE_KEY)));
 app.get('/dashboard', (c) => c.html(renderDashboard(isDemoHost(c))));
 app.get('/', (c) => c.html(renderDashboard(isDemoHost(c))));
-app.get('/s/:token', (c) => c.html(renderSharePage(c.req.param('token'), c.env.TURNSTILE_SITE_KEY)));
+app.get('/s/:token', (c) =>
+  new Response(renderSharePage(c.req.param('token'), c.env.TURNSTILE_SITE_KEY), {
+    headers: {
+      'Content-Type': 'text/html; charset=UTF-8',
+      'X-Robots-Tag': 'noindex, nofollow, noarchive',
+    },
+  })
+);
 app.get('/u/:keyId', (c) => c.html(renderUploadKeyPage(c.req.param('keyId'), c.env.TURNSTILE_SITE_KEY)));
 app.get('/upload', (c) => c.html(renderPublicUploadPage(c.env.TURNSTILE_SITE_KEY)));
 app.get('/gallery', (c) => c.html(renderGallery()));
@@ -232,41 +239,31 @@ app.route('/random', randomRoutes);
 
 // ── SEO ───────────────────────────────────
 
-app.get('/robots.txt', (c) =>
-  c.text(`User-agent: *
+app.get('/robots.txt', (c) => {
+  const origin = new URL(c.req.url).origin;
+  return c.text(`User-agent: *
 Allow: /login
-Allow: /s/*
 Allow: /u/*
 Allow: /upload
+Disallow: /s/
 Disallow: /api/*
 Disallow: /
 
-Sitemap: https://drive.example.com/sitemap.xml`)
-);
+Sitemap: ${origin}/sitemap.xml`);
+});
 
-app.get('/sitemap.xml', async (c) => {
-  try {
-    const meta = createMetadataStore(c.env);
-    const { keys } = await meta.list('_shares/', { limit: 1000 });
-    const urls = keys
-      .map((key) => {
-        const token = key.replace('_shares/', '').replace('.json', '');
-        return `  <url><loc>https://drive.example.com/s/${token}</loc></url>`;
-      })
-      .join('\n');
-    return new Response(
-      `<?xml version="1.0" encoding="UTF-8"?>
+app.get('/sitemap.xml', (c) => {
+  const origin = new URL(c.req.url).origin;
+  const urls = ['/login', '/upload']
+    .map((path) => `  <url><loc>${origin}${path}</loc></url>`)
+    .join('\n');
+  return new Response(
+    `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://drive.example.com/login</loc></url>
 ${urls}
 </urlset>`,
-      { headers: { 'Content-Type': 'application/xml; charset=utf-8' } }
-    );
-  } catch {
-    return new Response('<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>', {
-      headers: { 'Content-Type': 'application/xml; charset=utf-8' },
-    });
-  }
+    { headers: { 'Content-Type': 'application/xml; charset=utf-8' } }
+  );
 });
 
 app.notFound((c) => c.text('Not Found', 404));
