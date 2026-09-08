@@ -148,6 +148,9 @@ jobs:
     name: Deploy Demo
     runs-on: ubuntu-latest
     needs: deploy-main
+    # Demo requires an isolated D1 database. Keep it opt-in so an unconfigured
+    # optional environment cannot fail the production deployment pipeline.
+    if: vars.DEPLOY_DEMO == 'true'
     steps:
       - uses: actions/checkout@v4
 
