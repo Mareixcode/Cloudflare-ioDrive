@@ -148,9 +148,6 @@ jobs:
     name: Deploy Demo
     runs-on: ubuntu-latest
     needs: deploy-main
-    # Demo requires an isolated D1 database. Keep it opt-in so an unconfigured
-    # optional environment cannot fail the production deployment pipeline.
-    if: vars.DEPLOY_DEMO == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -160,11 +157,6 @@ jobs:
           cache: 'npm'
 
       - run: npm ci
-
-      - name: Validate demo database secret
-        env:
-          DEMO_META_DB_ID: ${{ secrets.DEMO_META_DB_ID }}
-        run: test -n "$DEMO_META_DB_ID" || { echo "Missing DEMO_META_DB_ID"; exit 1; }
 
       - name: Create demo config
         run: |
@@ -209,7 +201,7 @@ jobs:
           [[d1_databases]]
           binding = "META_DB"
           database_name = "iodrive-demo-meta"
-          database_id = "${{ secrets.DEMO_META_DB_ID }}"
+          database_id = "e0c9ba9d-4907-469f-a9a0-f4ee1b25bc5d"
           EOF
 
           # Append RATE_LIMITER rate limit config
