@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "deploy:demo": "wrangler deploy --config wrangler.demo.toml"
+    "typecheck": "tsc --noEmit",
+    "build": "wrangler deploy src/index.ts --name iodrive --compatibility-date 2026-09-07 --dry-run --outdir=dist",
+    "test": "npm run typecheck && npm run build",
+    "deploy": "wrangler deploy"
   },
   "dependencies": {
     "hono": "^4.0.0",

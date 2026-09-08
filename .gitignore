@@ -3,6 +3,7 @@ node_modules/
 
 # Cloudflare
 .wrangler/
+dist/
 wrangler.toml
 wrangler.demo.toml
 

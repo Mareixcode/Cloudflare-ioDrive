@@ -6,8 +6,9 @@ import { verifyTurnstile } from './turnstile';
 import { getAllS3ConfigsAsync, detectPathStyle } from './storage';
 import { createStorageEngine } from './storage-engine';
 import { createMetadataStore } from './metadata-store';
-import { incrementShareDownload } from './share';
+import { getShareRecord, incrementShareDownload, isShareExpired } from './share';
 import { sha256Hex, hmacHex, getSigningKey } from './s3-sign';
+import { assertSafeStorageKey } from './storage-path';
 
 export const downloadRoutes = new Hono<{ Bindings: Env }>();
 
@@ -15,14 +16,16 @@ export const downloadRoutes = new Hono<{ Bindings: Env }>();
 downloadRoutes.get('/logs', jwtAuth, async (c) => {
   const meta = createMetadataStore(c.env);
   const { keys } = await meta.list('_dl_logs/', { limit: 500 });
-  const logs: any[] = [];
+  const logs: Array<DownloadLogEntry & { logKey: string }> = [];
   for (const key of keys) {
     try {
       const entry = await meta.get<DownloadLogEntry>(key);
       if (entry) {
         logs.push({ ...entry, logKey: key + '.json' });
       }
-    } catch {}
+    } catch (error) {
+      console.warn(`Skipping invalid download log ${key}:`, error);
+    }
   }
   logs.sort((a, b) => (a.time > b.time ? -1 : 1));
   return c.json({ logs });
@@ -50,19 +53,11 @@ downloadRoutes.delete('/logs/:logKey{.+}', jwtAuth, async (c) => {
   const logKey = c.req.param('logKey');
   let key = logKey;
   if (key.endsWith('.json')) key = key.slice(0, -5);
-  if (!key.startsWith('_dl_logs/')) {
+  if (!/^_dl_logs\/[A-Za-z0-9_-]+$/.test(key)) {
     return c.json({ error: 'invalid log key' }, 400);
   }
   await meta.delete(key);
   return c.json({ ok: true });
-});
-
-// ── Dashboard: redirect to storage (legacy) ─────
-downloadRoutes.get('/url/:key{.+}', jwtAuth, async (c) => {
-  const key = c.req.param('key');
-  const domain = c.env.PUBLIC_DOMAIN || new URL(c.req.url).host;
-  const encoded = key.split('/').map(encodeURIComponent).join('/');
-  return c.redirect('https://' + domain + '/' + encoded, 302);
 });
 
 // ── Dashboard: presigned URL with tracking (JWT) ──
@@ -70,6 +65,11 @@ downloadRoutes.get('/presign/:key{.+}', jwtAuth, async (c) => {
   const engine = await createStorageEngine(c.env);
   const meta = createMetadataStore(c.env);
   const key = c.req.param('key');
+  try {
+    assertSafeStorageKey(key);
+  } catch {
+    return c.json({ error: '文件路径无效' }, 400);
+  }
   const head = await engine.head(key);
   if (!head) return c.json({ error: '文件不存在' }, 404);
 
@@ -82,7 +82,7 @@ downloadRoutes.get('/presign/:key{.+}', jwtAuth, async (c) => {
   let presignedUrl: string | null = null;
   let source = 'r2';
 
-  if (c.env.R2_PUBLIC_DOMAIN) {
+  if (engine.kind === 'r2' && c.env.R2_PUBLIC_DOMAIN) {
     const encodedKey = key.split('/').map(encodeURIComponent).join('/');
     presignedUrl = 'https://' + c.env.R2_PUBLIC_DOMAIN + '/' + encodedKey;
   }
@@ -120,7 +120,7 @@ downloadRoutes.get('/presign/:key{.+}', jwtAuth, async (c) => {
     os: parsed.os,
     deviceType: parsed.deviceType,
   };
-  const logId = 'direct_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  const logId = 'direct_' + crypto.randomUUID();
   const logKey = '_dl_logs/' + logId;
   await meta.put(logKey, logEntry);
 
@@ -141,8 +141,9 @@ downloadRoutes.post('/token', async (c) => {
     return c.json({ error: '人机验证失败' }, 403);
   }
 
-  const record = await incrementShareDownload(meta, shareToken);
+  const record = await getShareRecord(meta, shareToken);
   if (!record) return c.json({ error: '分享链接不存在' }, 404);
+  if (isShareExpired(record)) return c.json({ error: '分享链接已过期' }, 410);
 
   const head = await engine.head(record.key);
   if (!head) return c.json({ error: '文件不存在' }, 404);
@@ -150,7 +151,7 @@ downloadRoutes.post('/token', async (c) => {
   // 下载 URL：优先 R2 公开域名（无需签名），回退到 S3 presigned URLs
   let primaryUrl: string | null = null;
   const s3Urls: { name: string; url: string }[] = [];
-  if (c.env.R2_PUBLIC_DOMAIN) {
+  if (engine.kind === 'r2' && c.env.R2_PUBLIC_DOMAIN) {
     const encodedKey = record.key.split('/').map(encodeURIComponent).join('/');
     primaryUrl = 'https://' + c.env.R2_PUBLIC_DOMAIN + '/' + encodedKey;
   }
@@ -175,6 +176,7 @@ downloadRoutes.post('/token', async (c) => {
 
   if (!primaryUrl) primaryUrl = s3Urls.length > 0 ? s3Urls[0].url : null;
   if (!primaryUrl) return c.json({ error: '生成下载链接失败' }, 500);
+  await incrementShareDownload(meta, shareToken);
 
   // Log download with detailed tracking
   const ua = c.req.header('User-Agent') || '';
@@ -188,13 +190,13 @@ downloadRoutes.post('/token', async (c) => {
     country: c.req.header('CF-IPCountry') || '',
     ua,
     shareToken,
-    source: 's3',
+    source: engine.kind === 'r2' && c.env.R2_PUBLIC_DOMAIN ? 'r2' : 's3',
     referer: c.req.header('Referer') || '',
     browser: parsed.browser,
     os: parsed.os,
     deviceType: parsed.deviceType,
   };
-  const logId = shareToken + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  const logId = shareToken + '_' + crypto.randomUUID();
   const logKey = '_dl_logs/' + logId;
   await meta.put(logKey, logEntry);
 
@@ -211,7 +213,7 @@ downloadRoutes.post('/beacon', async (c) => {
   // 校验 logKey 必须以 _dl_logs/ 开头，防止读写任意对象
   let key = logKey;
   if (key.endsWith('.json')) key = key.slice(0, -5);
-  if (!key.startsWith('_dl_logs/')) {
+  if (!/^_dl_logs\/[A-Za-z0-9_-]+$/.test(key)) {
     return c.json({ error: 'invalid log key' }, 400);
   }
 
@@ -222,7 +224,9 @@ downloadRoutes.post('/beacon', async (c) => {
         entry.completed = true;
         await meta.put(key, entry);
       }
-    } catch {}
+    } catch (error) {
+      console.warn(`Failed to update download log ${key}:`, error);
+    }
   }
 
   return c.json({ ok: true });

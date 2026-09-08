@@ -266,15 +266,14 @@ Every upload is logged in detail:
 - **Upload Progress Bar**: Real-time upload progress (single and multipart)
 - **Clipboard Copy**: One-click copy of share links
 - **Curl / Aria2 Commands**: Auto-generated CLI download commands on share pages
-- **Configurable Admin Account**: Change admin username and password from the dashboard, passwords stored with SHA-256 encryption
+- **Configurable Admin Account**: Change admin credentials from the dashboard; passwords use salted PBKDF2-SHA256 storage
 
 ### 🗄️ D1 Metadata Database
 
-- **Switchable Backend**: Configure the `META_DB` binding in `wrangler.toml` to enable D1 (SQLite) mode; automatically falls back to R2 JSON file mode when not configured
+- **D1 metadata database**: The `META_DB` binding is required for accounts, shares, logs, upload keys, and multipart sessions
 - **Single-Table Key-Value Design**: Inspired by ImgBed's simplified pattern, all metadata (shares, download logs, upload logs, upload keys, config, multipart sessions, moderation logs) is stored in a single `kv` table
-- **Auto-Init**: First request triggers `d1.exec(initSql)` to create the table schema and indexes (idempotent)
-- **One-Time Migration**: Call `POST /api/migration/r2-to-d1` to batch-write R2 data from `_config/`, `_shares/`, `_dl_logs/`, `_ul_logs/`, `_upload_keys/`, `_multipart/`, `_moderation_logs/` into D1
-- **Graceful Fallback**: D1 failures are caught by try/catch and fall back to R2 JSON
+- **Explicit Initialization**: Run `database/init.sql` before deployment instead of creating tables in request handlers
+- **Visible Failures**: D1 errors propagate instead of silently splitting metadata across backends
 
 ### 🔌 WebDAV Drive Mount
 
@@ -506,7 +505,8 @@ Edit `wrangler.toml` with your settings:
 ```toml
 name = "iodrive"
 main = "src/index.ts"
-compatibility_date = "2024-12-01"
+compatibility_date = "2026-09-07"
+compatibility_flags = ["nodejs_compat"]
 routes = [{ pattern = "YOUR_DOMAIN/*", zone_name = "YOUR_ZONE" }]
 
 [vars]
@@ -617,7 +617,7 @@ After deployment, visit `https://YOUR_DOMAIN` to start using ioDrive.
 | `RANDOM_ENABLED` | Random Image API master switch | `false` |
 | `RANDOM_ALLOWED_DIRS` | CSV list of directories allowed by the Random API (empty = unrestricted) | empty |
 
-#### D1 Metadata Database (optional, uses SQLite for metadata when enabled)
+#### D1 Metadata Database (required)
 
 ```toml
 [[d1_databases]]
@@ -626,7 +626,7 @@ database_name = "iodrive-meta"
 database_id = "<your-d1-uuid>"
 ```
 
-After enabling D1, call `POST /api/migration/r2-to-d1` (JWT auth required) to one-shot migrate existing R2 JSON data.
+Initialize this database with `database/init.sql` before deployment.
 
 ### Route Configuration
 
@@ -700,7 +700,7 @@ drive/
 │           ├── share-link-1.png      # Share link screenshot - desktop
 │           └── share-link-2.png      # Share link screenshot - CLI download
 ├── src/
-│   ├── index.ts                      # 🚀 App entry: route registration, page routes, SEO, D1 auto-init
+│   ├── index.ts                      # 🚀 App entry: route registration, page routes, SEO
 │   ├── auth.ts                       # 🔐 JWT auth: login, JWT signing/verification middleware, rate limiting
 │   ├── files.ts                      # 📁 File CRUD: list, create folder, delete, batch delete, move
 │   ├── upload.ts                     # 📤 Dashboard upload: single, multipart (init/part/complete/abort)
@@ -713,7 +713,7 @@ drive/
 │   ├── s3-upload.ts                  # ☁️ S3 upload: AWS Signature V4 implementation (single + multipart)
 │   ├── storage-engine.ts             # 🧰 Storage engine abstraction: unified R2 / S3 interface
 │   ├── storage-config.ts             # 🗄 Multi-backend storage configuration management
-│   ├── metadata-store.ts             # 🗄 Metadata abstraction layer: R2 JSON / D1 dual-backend auto-switch
+│   ├── metadata-store.ts             # 🗄 D1 metadata store
 │   ├── moderation.ts                 # 🛡 Content moderation Provider interface + ModerateContent / NSFWJS implementations
 │   ├── moderation-admin.ts           # 🛡 Moderation config / logs / test API
 │   ├── random.ts                     # 🎲 Random Image API (with Workers Cache)
@@ -729,11 +729,8 @@ drive/
 │       ├── upload-key.ts             # Upload link page (time-limited upload)
 │       ├── public-upload.ts          # Public upload page (no login required)
 │       └── demo.ts                   # Demo site landing page
-├── scripts/
-│   └── migrate-to-d1.ts              # One-time R2→D1 metadata migration script
 ├── wrangler.toml                     # Production deployment config
 ├── wrangler.toml.example             # Configuration file template
-├── wrangler.demo.toml                # Demo environment deployment config
 ├── tsconfig.json                     # TypeScript configuration
 ├── package.json                      # Project dependencies and scripts
 ├── LICENSE                           # GPL-3.0 License
@@ -1116,22 +1113,6 @@ Validate an upload key.
 
 ---
 
-### D1 Migration API
-
-#### `POST /api/migration/r2-to-d1` (JWT Required)
-
-Batch-read JSON files in R2 with the `_config/` / `_shares/` / `_dl_logs/` / `_ul_logs/` / `_upload_keys/` / `_multipart/` / `_moderation_logs/` prefixes and write them to D1. Requires the `META_DB` binding to be configured. Idempotent.
-
-**Response:**
-
-```json
-{
-  "ok": true,
-  "stats": { "_config/": 1, "_shares/": 5, "_dl_logs/": 23 },
-  "errors": []
-}
-```
-
 ### Random Image API (Public)
 
 #### `GET /random`
@@ -1260,8 +1241,8 @@ npm run deploy
 
 The project includes a CI/CD pipeline (`.github/workflows/deploy.yml`):
 
-- **Push to `main` branch** → Auto-deploy to production (drive.iodevo.com)
-- **Push to `demo` branch** → Auto-deploy to demo environment (demo.iodevo.com)
+- **Push to `main` branch** → Auto-deploy the same verified commit to production and demo
+- **Push to `demo` branch** → Run type checks and the dry-run build only
 - **PR to `main` or `demo`** → Auto-run type check and tests
 
 #### Configuring GitHub Actions
@@ -1283,16 +1264,10 @@ The project includes a CI/CD pipeline (`.github/workflows/deploy.yml`):
 
 ### Demo Environment
 
-The project also provides a demo site configured in `wrangler.demo.toml`:
+The demo deployment is generated by `.github/workflows/deploy.yml` from the same verified `main` commit:
 
 - Demo site: [demo.iodevo.com](https://demo.iodevo.com)
 - The demo site blocks actual upload requests, only showing the UI
-
-Deploy the demo environment:
-
-```bash
-npm run deploy:demo
-```
 
 ### Post-Deployment Checklist
 

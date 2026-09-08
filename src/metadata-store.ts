@@ -41,7 +41,7 @@ export function deriveCategory(key: string): Category {
 }
 
 // 抽取可索引字段
-function extractIndexedFields(key: string, value: any): {
+function extractIndexedFields(key: string, value: unknown): {
   category: Category;
   expires_at: number | null;
   key_path: string | null;
@@ -50,13 +50,18 @@ function extractIndexedFields(key: string, value: any): {
   label: string | null;
 } {
   const category = deriveCategory(key);
+  const record = typeof value === 'object' && value !== null
+    ? value as Record<string, unknown>
+    : {};
+  const expiresAt = typeof record.expires === 'string' ? Date.parse(record.expires) : NaN;
+  const timeMs = typeof record.time === 'string' ? Date.parse(record.time) : NaN;
   return {
     category,
-    expires_at: value?.expires ? Math.floor(Date.parse(value.expires) / 1000) : null,
-    key_path: value?.key ? String(value.key) : null,
-    time_ms: value?.time ? Math.floor(Date.parse(value.time) / 1000) : null,
-    ip: value?.ip ? String(value.ip) : null,
-    label: value?.label ? String(value.label) : null,
+    expires_at: Number.isFinite(expiresAt) ? Math.floor(expiresAt / 1000) : null,
+    key_path: record.key ? String(record.key) : null,
+    time_ms: Number.isFinite(timeMs) ? Math.floor(timeMs / 1000) : null,
+    ip: record.ip ? String(record.ip) : null,
+    label: record.label ? String(record.label) : null,
   };
 }
 
@@ -75,9 +80,10 @@ export interface ListResult {
 export interface MetadataStore {
   get<T = unknown>(key: string): Promise<T | null>;
   put(key: string, value: unknown): Promise<void>;
+  incrementCounter<T = unknown>(key: string, field: string): Promise<T | null>;
   delete(key: string | string[]): Promise<void>;
   list(prefix: string, options?: ListOptions): Promise<ListResult>;
-  /** 返回底层实现标识（R2 / D1） */
+  /** 返回底层实现标识 */
   readonly kind: 'd1';
 }
 
@@ -104,16 +110,12 @@ export class D1MetadataStore implements MetadataStore {
   constructor(private db: D1Database) {}
 
   async get<T = unknown>(key: string): Promise<T | null> {
-    try {
-      const row = await this.db
-        .prepare('SELECT value FROM kv WHERE id = ?')
-        .bind(key)
-        .first<{ value: string }>();
-      if (!row) return null;
-      return JSON.parse(row.value) as T;
-    } catch {
-      return null;
-    }
+    const row = await this.db
+      .prepare('SELECT value FROM kv WHERE id = ?')
+      .bind(key)
+      .first<{ value: string }>();
+    if (!row) return null;
+    return JSON.parse(row.value) as T;
   }
 
   async put(key: string, value: unknown): Promise<void> {
@@ -146,6 +148,22 @@ export class D1MetadataStore implements MetadataStore {
       .run();
   }
 
+  async incrementCounter<T = unknown>(key: string, field: string): Promise<T | null> {
+    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(field)) throw new Error('Invalid counter field');
+    const path = `$.${field}`;
+    const row = await this.db
+      .prepare(
+        `UPDATE kv
+         SET value = json_set(value, ?, COALESCE(json_extract(value, ?), 0) + 1),
+             updated_at = unixepoch()
+         WHERE id = ?
+         RETURNING value`
+      )
+      .bind(path, path, key)
+      .first<{ value: string }>();
+    return row ? JSON.parse(row.value) as T : null;
+  }
+
   async delete(key: string | string[]): Promise<void> {
     const keys = Array.isArray(key) ? key : [key];
     if (keys.length === 0) return;
@@ -163,7 +181,7 @@ export class D1MetadataStore implements MetadataStore {
   async list(prefix: string, options: ListOptions = {}): Promise<ListResult> {
     const limit = options.limit ?? 1000;
     const cursor = options.cursor; // 上次返回的最大 id
-    const likePrefix = prefix.replace(/%/g, '\\%') + '%';
+    const likePrefix = prefix.replace(/([\\%_])/g, '\\$1') + '%';
 
     let rows: Array<{ id: string }>;
     if (cursor) {
@@ -199,41 +217,4 @@ export function createMetadataStore(env: Env): MetadataStore {
     throw new Error('META_DB (D1) binding is required. Please configure [[d1_databases]] in wrangler.toml.');
   }
   return new D1MetadataStore(env.META_DB);
-}
-
-const D1_INIT_SQL = "CREATE TABLE IF NOT EXISTS kv (id TEXT PRIMARY KEY, category TEXT NOT NULL, value TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT (unixepoch()), updated_at INTEGER NOT NULL DEFAULT (unixepoch()), expires_at INTEGER, key_path TEXT, time_ms INTEGER, ip TEXT, label TEXT);";
-
-const D1_INIT_INDEXES = [
-  'CREATE INDEX IF NOT EXISTS idx_kv_category       ON kv(category);',
-  'CREATE INDEX IF NOT EXISTS idx_kv_category_time  ON kv(category, time_ms DESC);',
-  'CREATE INDEX IF NOT EXISTS idx_kv_category_key   ON kv(category, key_path);',
-  'CREATE INDEX IF NOT EXISTS idx_kv_expires        ON kv(expires_at) WHERE expires_at IS NOT NULL;',
-  'CREATE INDEX IF NOT EXISTS idx_kv_label          ON kv(label) WHERE label IS NOT NULL;',
-];
-
-let initPromise: Promise<void> | null = null;
-
-export async function ensureD1Schema(env: Env): Promise<void> {
-  if (!env.META_DB) return;
-  if (initPromise) return initPromise;
-
-  initPromise = (async () => {
-    try {
-      const table = await env.META_DB!
-        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='kv'")
-        .first();
-      if (!table) {
-        await env.META_DB!.exec(D1_INIT_SQL);
-        for (const idx of D1_INIT_INDEXES) {
-          await env.META_DB!.exec(idx);
-        }
-      }
-    } catch (e) {
-      console.error('D1 schema init failed:', e);
-      initPromise = null;
-      throw e;
-    }
-  })();
-
-  return initPromise;
 }

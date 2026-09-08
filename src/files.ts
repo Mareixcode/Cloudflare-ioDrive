@@ -4,7 +4,8 @@ import { jwtAuth } from './auth';
 import { uniqueKey } from './upload-utils';
 import { createStorageEngine, createStorageEngineForBackend } from './storage-engine';
 import type { StorageEngine } from './storage-engine';
-import { getFileCache, setFileCache, getFoldersCache, setFoldersCache, clearFileCache, clearFileCacheBatch } from './cache';
+import { getFileCache, setFileCache, getFoldersCache, setFoldersCache, clearFileCache, clearFileCacheBatch, getParentPrefix } from './cache';
+import { assertSafeStorageKey, normalizeStorageDirectory } from './storage-path';
 
 export const filesRoutes = new Hono<{ Bindings: Env }>();
 
@@ -20,7 +21,8 @@ async function getEngine(env: import('./types').Env, backend?: string): Promise<
 filesRoutes.get('/', async (c) => {
   try {
     const backend = c.req.query('backend') || '';
-    const prefix = c.req.query('prefix') || 'uploads/';
+    const requestedPrefix = c.req.query('prefix');
+    const prefix = normalizeStorageDirectory(requestedPrefix === undefined ? 'uploads/' : requestedPrefix);
 
     // 优先从 KV 缓存获取
     const cached = await getFileCache(c.env, backend, prefix);
@@ -51,12 +53,14 @@ filesRoutes.get('/', async (c) => {
     }
 
     const currentPath = prefix;
-    const ancestorParts = currentPath === 'uploads/' ? [] : currentPath.replace('uploads/', '').split('/').filter(Boolean);
+    const rootPath = backend ? '' : 'uploads/';
+    const relativePath = currentPath.startsWith(rootPath) ? currentPath.slice(rootPath.length) : currentPath;
+    const ancestorParts = relativePath.split('/').filter(Boolean);
     const ancestors: { name: string; path: string }[] = [];
     for (let i = 0; i < ancestorParts.length; i++) {
       ancestors.push({
         name: ancestorParts[i],
-        path: 'uploads/' + ancestorParts.slice(0, i + 1).join('/') + '/',
+        path: rootPath + ancestorParts.slice(0, i + 1).join('/') + '/',
       });
     }
 
@@ -91,7 +95,7 @@ filesRoutes.get('/folders', async (c) => {
       await collect(dir, depth + 1);
     }
   }
-  await collect('uploads/', 0);
+  await collect(backend ? '' : 'uploads/', 0);
 
   // 异步写入缓存
   c.executionCtx.waitUntil(setFoldersCache(c.env, backend, folders));
@@ -103,8 +107,13 @@ filesRoutes.post('/folder', async (c) => {
   const backend = c.req.query('backend') || '';
   const engine = await getEngine(c.env, backend);
   const { path } = await c.req.json<{ path: string }>();
-  if (!path || !path.startsWith('uploads/')) return c.json({ error: 'invalid path' }, 400);
-  const folderKey = path.endsWith('/') ? path : path + '/';
+  let folderKey: string;
+  try {
+    folderKey = normalizeStorageDirectory(path);
+  } catch {
+    return c.json({ error: 'invalid path' }, 400);
+  }
+  if (!folderKey || (!backend && !folderKey.startsWith('uploads/'))) return c.json({ error: 'invalid path' }, 400);
   const existing = await engine.head(folderKey);
   if (existing) return c.json({ error: '文件夹已存在' }, 409);
   await engine.put(folderKey, '', { contentType: 'application/x-directory' });
@@ -112,12 +121,8 @@ filesRoutes.post('/folder', async (c) => {
   return c.json({ ok: true, path: folderKey });
 });
 
-// 校验 key 不允许操作内部元数据（以 _ 开头的路径）
-function assertValidKey(key: string): void {
-  if (key.startsWith('_')) throw new Error('不允许操作内部文件');
-}
 function assertValidKeys(keys: string[]): void {
-  for (const k of keys) assertValidKey(k);
+  for (const key of keys) assertSafeStorageKey(key);
 }
 
 // Delete file or folder
@@ -125,7 +130,7 @@ filesRoutes.delete('/:key{.+}', async (c) => {
   const backend = c.req.query('backend') || '';
   const engine = await getEngine(c.env, backend);
   const key = c.req.param('key');
-  assertValidKey(key);
+  assertSafeStorageKey(key);
   if (key.endsWith('/')) {
     let cursor: string | undefined;
     const allKeys: string[] = [];
@@ -188,14 +193,20 @@ filesRoutes.post('/move', async (c) => {
   const backend = c.req.query('backend') || '';
   const engine = await getEngine(c.env, backend);
   const { keys, targetPath } = await c.req.json<{ keys: string[]; targetPath: string }>();
-  if (!keys?.length || !targetPath) return c.json({ error: 'no keys or target' }, 400);
+  if (!keys?.length || typeof targetPath !== 'string') return c.json({ error: 'no keys or target' }, 400);
   assertValidKeys(keys);
+  const normalizedTarget = normalizeStorageDirectory(targetPath);
+  if (!backend && !normalizedTarget.startsWith('uploads/')) return c.json({ error: 'invalid target' }, 400);
   for (const key of keys) {
+    if (getParentPrefix(key) === normalizedTarget) continue;
+    if (key.endsWith('/') && normalizedTarget.startsWith(key)) {
+      return c.json({ error: '不能将文件夹移动到其自身目录中' }, 400);
+    }
     if (key.endsWith('/')) {
       // 移动文件夹
       const folderName = key.slice(0, -1).split('/').pop();
       if (!folderName) continue;
-      const targetFolder = targetPath + folderName + '/';
+      const targetFolder = normalizedTarget + folderName + '/';
 
       let cursor: string | undefined;
       const allObjects: string[] = [];
@@ -226,12 +237,12 @@ filesRoutes.post('/move', async (c) => {
       const head = await engine.head(key);
       const contentType = head?.contentType || 'application/octet-stream';
       const filename = key.split('/').pop() || key;
-      const newKey = await uniqueKey(engine, targetPath, filename);
+      const newKey = await uniqueKey(engine, normalizedTarget, filename);
       await engine.put(newKey, await obj.arrayBuffer(), { contentType });
       await engine.delete(key);
     }
   }
-  c.executionCtx.waitUntil(clearFileCacheBatch(c.env, backend, [...keys, targetPath]));
+  c.executionCtx.waitUntil(clearFileCacheBatch(c.env, backend, [...keys, normalizedTarget]));
   return c.json({ ok: true });
 });
 
@@ -240,6 +251,7 @@ filesRoutes.get('/:key{.+}', async (c) => {
   const backend = c.req.query('backend') || '';
   const engine = await getEngine(c.env, backend);
   const key = c.req.param('key');
+  assertSafeStorageKey(key);
   const obj = await engine.head(key);
   if (!obj) return c.json({ error: '文件不存在' }, 404);
   return c.json({

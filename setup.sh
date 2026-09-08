@@ -288,6 +288,16 @@ title "生成安全密钥"
 JWT_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
 success "JWT Secret 已自动生成"
 
+# ── D1 元数据库 ──────────────────────────────
+title "D1 元数据库配置"
+
+echo -e "${YELLOW}META_DB 是必需绑定；请先在 Cloudflare 创建 D1 数据库并执行 database/init.sql${NC}"
+read -rp "$(echo -e "${BOLD}请输入 D1 Database ID: ${NC}")" META_DB_ID
+if [ -z "$META_DB_ID" ]; then
+  error "D1 Database ID 不能为空"
+  exit 1
+fi
+
 # ── 生成配置文件 ──────────────────────────────
 title "生成配置文件"
 
@@ -305,7 +315,8 @@ fi
 cat > wrangler.toml << EOF
 name = "${WORKER_NAME}"
 main = "src/index.ts"
-compatibility_date = "2024-12-01"
+compatibility_date = "2026-09-07"
+compatibility_flags = ["nodejs_compat"]
 account_id = "${ACCOUNT_ID}"
 routes = [{ pattern = "${ROUTE_PREFIX}.${DOMAIN}/*", zone_name = "${DOMAIN}" }]
 
@@ -323,6 +334,15 @@ R2_BUCKET = "${R2_BUCKET}"
 R2_ACCOUNT_ID = "${ACCOUNT_ID}"
 EOF
 fi
+
+# D1 元数据库绑定（必需）
+cat >> wrangler.toml << EOF
+
+[[d1_databases]]
+binding = "META_DB"
+database_name = "iodrive-meta"
+database_id = "${META_DB_ID}"
+EOF
 
 # 多后端存储配置
 if [ "$EXTRA_BACKEND_COUNT" -gt 0 ]; then

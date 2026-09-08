@@ -16,13 +16,13 @@ export function getParentPrefix(key: string): string {
     // 它是目录，例如 "uploads/foo/bar/"
     const parts = key.slice(0, -1).split('/');
     parts.pop();
-    if (parts.length === 0) return 'uploads/';
+    if (parts.length === 0) return '';
     return parts.join('/') + '/';
   } else {
     // 它是文件，例如 "uploads/foo/bar.txt"
     const parts = key.split('/');
     parts.pop();
-    if (parts.length === 0) return 'uploads/';
+    if (parts.length === 0) return '';
     return parts.join('/') + '/';
   }
 }
@@ -47,7 +47,7 @@ export async function getFileCache(env: Env, backend: string, prefix: string): P
 /**
  * 写入 KV 缓存（默认缓存 10 分钟）
  */
-export async function setFileCache(env: Env, backend: string, prefix: string, data: any): Promise<void> {
+export async function setFileCache(env: Env, backend: string, prefix: string, data: unknown): Promise<void> {
   if (!env.CACHE_KV) return;
   try {
     const site = getSitePrefix(env);

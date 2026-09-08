@@ -1,5 +1,6 @@
 // Shared upload helpers
 import type { StorageEngine } from './storage-engine';
+import { assertSafeFilename, normalizeStorageDirectory } from './storage-path';
 
 export function getContentType(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
@@ -17,6 +18,20 @@ export function getContentType(filename: string): string {
   return types[ext] || 'application/octet-stream';
 }
 
+export function getSafeImageContentType(filename: string): string | null {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  const types: Record<string, string> = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    bmp: 'image/bmp',
+    ico: 'image/x-icon',
+  };
+  return types[ext] || null;
+}
+
 // Generate a unique key under path preserving the original filename.
 // If the target exists, appends " (1)", " (2)" ... before extension.
 // Accepts either R2Bucket (legacy) or StorageEngine.
@@ -25,7 +40,8 @@ export async function uniqueKey(
   path: string,
   filename: string,
 ): Promise<string> {
-  if (!path.endsWith('/')) path += '/';
+  assertSafeFilename(filename);
+  path = normalizeStorageDirectory(path);
 
   // 适配 R2Bucket 和 StorageEngine 两种接口
   const head = async (key: string) => {

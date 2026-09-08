@@ -1,6 +1,7 @@
 name = "iodrive"
 main = "src/index.ts"
-compatibility_date = "2024-12-01"
+compatibility_date = "2026-09-07"
+compatibility_flags = ["nodejs_compat"]
 account_id = "YOUR_ACCOUNT_ID"
 routes = [{ pattern = "YOUR_DOMAIN/*", zone_name = "YOUR_ZONE" }]
 
@@ -35,6 +36,12 @@ PUBLIC_UPLOAD_PATH = "uploads/public/"
 #   custom       - 自定义 S3 兼容
 #
 # STORAGE_CONFIG = '[{"name":"main","provider":"aws","endpoint":"s3.amazonaws.com","bucket":"my-bucket","region":"us-east-1","primary":true,"sync":true}]'
+
+# ── D1 元数据库（必需） ─────────────────────────────────
+[[d1_databases]]
+binding = "META_DB"
+database_name = "iodrive-meta"
+database_id = "YOUR_D1_DATABASE_ID"
 
 # ── R2 存储桶绑定（可选，使用 R2 时需要） ──────────────────
 # [[r2_buckets]]

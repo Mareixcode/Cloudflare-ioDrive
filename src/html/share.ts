@@ -1,4 +1,5 @@
 export function renderSharePage(token: string, siteKey: string): string {
+  const tokenJson = JSON.stringify(token).replace(/</g, '\\u003c');
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -128,8 +129,7 @@ export function renderSharePage(token: string, siteKey: string): string {
   </div>
 
   <script>
-    function _js(s){return s.replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'").replace(/</g,'\\x3c')}
-    var SHARE_TOKEN=_js('${token}');
+    var SHARE_TOKEN=${tokenJson};
     var r2Url='',s3Url='',dlName='',logKey='';
 
     // Load share info (NO URL exposed)

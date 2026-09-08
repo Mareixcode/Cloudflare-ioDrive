@@ -4,14 +4,13 @@ on:
   push:
     branches:
       - main
-      - demo
   pull_request:
     branches:
       - main
       - demo
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-and-test:
@@ -30,15 +29,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: TypeScript type check
-        run: npx tsc --noEmit
-
-      - name: Build
-        run: npx wrangler deploy src/index.ts --name iodrive --compatibility-date 2024-12-01 --dry-run --outdir=dist 2>&1 || true
-
-      - name: Run tests
+      - name: Type check and build
         run: npm test
-        continue-on-error: true
 
   deploy-main:
     name: Deploy Production
@@ -58,12 +50,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate required deployment secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          META_DB_ID: ${{ secrets.META_DB_ID }}
+          ADMIN_PASS: ${{ secrets.ADMIN_PASS }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing CLOUDFLARE_API_TOKEN"; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing CLOUDFLARE_ACCOUNT_ID"; exit 1; }
+          test -n "$META_DB_ID" || { echo "Missing META_DB_ID"; exit 1; }
+          test -n "$ADMIN_PASS" || { echo "Missing ADMIN_PASS"; exit 1; }
+          test -n "$JWT_SECRET" || { echo "Missing JWT_SECRET"; exit 1; }
+
       - name: Create production config
         run: |
           cat > wrangler.toml <<'EOF'
           name = "iodrive"
           main = "src/index.ts"
-          compatibility_date = "2024-12-01"
+          compatibility_date = "2026-09-07"
+          compatibility_flags = ["nodejs_compat"]
           account_id = "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
           routes = [{ pattern = "drive.iodevo.com/*", zone_name = "iodevo.com" }]
           [vars]
@@ -94,16 +101,14 @@ jobs:
           EOF
           fi
 
-          # Append META_DB (D1) if secret is present
-          if [ -n "${{ secrets.META_DB_ID }}" ]; then
-            cat >> wrangler.toml <<'EOF'
+          # D1 metadata is required by the application
+          cat >> wrangler.toml <<'EOF'
 
           [[d1_databases]]
           binding = "META_DB"
           database_name = "iodrive-meta"
           database_id = "${{ secrets.META_DB_ID }}"
           EOF
-          fi
 
           # Append RATE_LIMITER rate limit config
           cat >> wrangler.toml <<'EOF'
@@ -114,19 +119,6 @@ jobs:
           [ratelimits.simple]
           limit = 100
           period = 60
-          EOF
-
-      - name: Create secrets file
-        run: |
-          cat > .dev.vars <<'EOF'
-          ADMIN_PASS=${{ secrets.ADMIN_PASS }}
-          TURNSTILE_SECRET=${{ secrets.TURNSTILE_SECRET }}
-          TURNSTILE_SITE_KEY=${{ secrets.TURNSTILE_SITE_KEY }}
-          JWT_SECRET=${{ secrets.JWT_SECRET }}
-          R2_ACCESS_KEY=${{ secrets.R2_ACCESS_KEY }}
-          R2_SECRET_KEY=${{ secrets.R2_SECRET_KEY }}
-          S3_ACCESS_KEY=${{ secrets.S3_ACCESS_KEY }}
-          S3_SECRET_KEY=${{ secrets.S3_SECRET_KEY }}
           EOF
 
       - name: Upload secrets
@@ -152,37 +144,12 @@ jobs:
       - name: Success
         run: echo "✅ https://drive.iodevo.com"
 
-  sync-demo:
-    name: Sync to demo
+  deploy-demo:
+    name: Deploy Demo
     runs-on: ubuntu-latest
     needs: deploy-main
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Sync demo branch
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git ls-remote --heads origin demo | grep -q demo; then
-            git checkout demo
-            git merge main --no-edit -X theirs
-            git push origin demo
-          else
-            git checkout -b demo
-            git push origin demo
-          fi
-          echo "✅ demo synced"
-
-  deploy-demo:
-    name: Deploy Demo
-    runs-on: ubuntu-latest
-    needs: sync-demo
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: demo
 
       - uses: actions/setup-node@v4
         with:
@@ -191,12 +158,18 @@ jobs:
 
       - run: npm ci
 
+      - name: Validate demo database secret
+        env:
+          DEMO_META_DB_ID: ${{ secrets.DEMO_META_DB_ID }}
+        run: test -n "$DEMO_META_DB_ID" || { echo "Missing DEMO_META_DB_ID"; exit 1; }
+
       - name: Create demo config
         run: |
           cat > wrangler.toml <<'EOF'
           name = "iodrive-demo"
           main = "src/index.ts"
-          compatibility_date = "2024-12-01"
+          compatibility_date = "2026-09-07"
+          compatibility_flags = ["nodejs_compat"]
           account_id = "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
           routes = [{ pattern = "demo.iodevo.com/*", zone_name = "iodevo.com" }]
           [vars]
@@ -227,39 +200,24 @@ jobs:
           EOF
           fi
 
-          # Append META_DB (D1) if secret is present
-          if [ -n "${{ secrets.META_DB_ID }}" ]; then
-            cat >> wrangler.toml <<'EOF'
+          # Demo metadata is isolated from production
+          cat >> wrangler.toml <<'EOF'
 
           [[d1_databases]]
           binding = "META_DB"
-          database_name = "iodrive-meta"
-          database_id = "${{ secrets.META_DB_ID }}"
+          database_name = "iodrive-demo-meta"
+          database_id = "${{ secrets.DEMO_META_DB_ID }}"
           EOF
-          fi
 
           # Append RATE_LIMITER rate limit config
           cat >> wrangler.toml <<'EOF'
 
           [[ratelimits]]
           name = "RATE_LIMITER"
-          namespace_id = "1001"
+          namespace_id = "1002"
           [ratelimits.simple]
           limit = 100
           period = 60
-          EOF
-
-      - name: Create secrets file
-        run: |
-          cat > .dev.vars <<'EOF'
-          ADMIN_PASS=admin
-          TURNSTILE_SECRET=${{ secrets.TURNSTILE_SECRET }}
-          TURNSTILE_SITE_KEY=${{ secrets.TURNSTILE_SITE_KEY }}
-          JWT_SECRET=${{ secrets.JWT_SECRET }}
-          R2_ACCESS_KEY=${{ secrets.R2_ACCESS_KEY }}
-          R2_SECRET_KEY=${{ secrets.R2_SECRET_KEY }}
-          S3_ACCESS_KEY=${{ secrets.S3_ACCESS_KEY }}
-          S3_SECRET_KEY=${{ secrets.S3_SECRET_KEY }}
           EOF
 
       - name: Upload secrets
@@ -267,7 +225,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          echo "admin" | npx wrangler secret put ADMIN_PASS
+          echo "${{ secrets.ADMIN_PASS }}" | npx wrangler secret put ADMIN_PASS
           if [ -n "${{ secrets.TURNSTILE_SECRET }}" ]; then echo "${{ secrets.TURNSTILE_SECRET }}" | npx wrangler secret put TURNSTILE_SECRET; fi
           if [ -n "${{ secrets.JWT_SECRET }}" ]; then echo "${{ secrets.JWT_SECRET }}" | npx wrangler secret put JWT_SECRET; fi
           if [ -n "${{ secrets.R2_ACCESS_KEY }}" ]; then echo "${{ secrets.R2_ACCESS_KEY }}" | npx wrangler secret put R2_ACCESS_KEY; fi

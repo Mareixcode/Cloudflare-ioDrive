@@ -247,7 +247,7 @@ export function renderImgbed(siteKey: string): string {
         var item = uploadedItems[i];
         var idx = i;
         html += '<div class="result-card" style="animation-delay:' + Math.min(i * 50, 300) + 'ms">' +
-          '<img class="result-thumb" src="' + esc(item.url) + '" alt="' + esc(item.name) + '" onclick="openLightbox(\\'' + esc(item.url).replace(/'/g, "\\\\'") + '\\')" loading="lazy">' +
+          '<img class="result-thumb" src="' + esc(item.url) + '" data-url="' + esc(item.url) + '" alt="' + esc(item.name) + '" onclick="openLightbox(this.dataset.url)" loading="lazy">' +
           '<div class="result-info">' +
             '<div class="result-name" title="' + esc(item.name) + '">' + esc(item.name) + '</div>' +
             '<div class="result-meta">' + fmt(item.size) + '</div>' +

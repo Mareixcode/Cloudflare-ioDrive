@@ -3,8 +3,30 @@ import type { Env, ShareRecord } from './types';
 import { jwtAuth } from './auth';
 import { createStorageEngine } from './storage-engine';
 import { createMetadataStore } from './metadata-store';
+import type { MetadataStore } from './metadata-store';
+import { assertSafeStorageKey } from './storage-path';
 
 const SHARES_PREFIX = '_shares/';
+
+function isValidShareToken(token: string): boolean {
+  return /^[A-Za-z0-9]{12}$/.test(token);
+}
+
+export function isShareExpired(record: ShareRecord): boolean {
+  return Boolean(record.expires && Date.parse(record.expires) <= Date.now());
+}
+
+export async function getShareRecord(meta: MetadataStore, token: string): Promise<ShareRecord | null> {
+  if (!isValidShareToken(token)) return null;
+  const record = await meta.get<ShareRecord>(SHARES_PREFIX + token);
+  if (!record || record.token !== token) return null;
+  try {
+    assertSafeStorageKey(record.key);
+  } catch {
+    return null;
+  }
+  return record;
+}
 
 // Public routes (no auth required)
 export const sharePublicRoutes = new Hono<{ Bindings: Env }>();
@@ -14,13 +36,13 @@ sharePublicRoutes.get('/info/:token', async (c) => {
   const engine = await createStorageEngine(c.env);
   const meta = createMetadataStore(c.env);
   const token = c.req.param('token');
-  const record = await meta.get<ShareRecord>(SHARES_PREFIX + token);
+  const record = await getShareRecord(meta, token);
 
   if (!record) {
     return c.json({ error: '分享链接不存在或已过期' }, 404);
   }
 
-  if (record.expires && new Date(record.expires) < new Date()) {
+  if (isShareExpired(record)) {
     return c.json({ error: '分享链接已过期' }, 410);
   }
 
@@ -51,6 +73,13 @@ shareRoutes.post('/', async (c) => {
   if (!key) {
     return c.json({ error: '缺少文件 key' }, 400);
   }
+  try {
+    assertSafeStorageKey(key);
+  } catch {
+    return c.json({ error: '文件 key 无效' }, 400);
+  }
+  const engine = await createStorageEngine(c.env);
+  if (!(await engine.head(key))) return c.json({ error: '文件不存在' }, 404);
 
   const token = generateToken();
 
@@ -89,6 +118,7 @@ shareRoutes.get('/', async (c) => {
 shareRoutes.delete('/:token', async (c) => {
   const meta = createMetadataStore(c.env);
   const token = c.req.param('token');
+  if (!isValidShareToken(token)) return c.json({ error: '分享链接不存在' }, 404);
   await meta.delete(SHARES_PREFIX + token);
   return c.json({ ok: true });
 });
@@ -97,11 +127,20 @@ shareRoutes.delete('/:token', async (c) => {
 shareRoutes.post('/batch', async (c) => {
   const meta = createMetadataStore(c.env);
   const { keys } = await c.req.json<{ keys: string[] }>();
-  if (!keys?.length) return c.json({ error: 'no keys' }, 400);
+  if (!Array.isArray(keys) || keys.length === 0 || keys.length > 100 || keys.some(key => typeof key !== 'string')) {
+    return c.json({ error: 'invalid keys' }, 400);
+  }
 
+  const engine = await createStorageEngine(c.env);
   const shares: { token: string; name: string }[] = [];
   for (const key of keys) {
     if (key.endsWith('/')) continue;
+    try {
+      assertSafeStorageKey(key);
+    } catch {
+      continue;
+    }
+    if (!(await engine.head(key))) continue;
     const token = generateToken();
     const name = key.split('/').pop() || key;
     const record: ShareRecord = { token, key, name, created: new Date().toISOString(), noAd: false, downloads: 0 };
@@ -113,15 +152,11 @@ shareRoutes.post('/batch', async (c) => {
 });
 
 /**
- * 原子地递增分享下载计数。需要先读到最新记录，然后用 read-modify-write。
- * 多数场景下并发量低，简单实现即可。
+ * 由 D1 在单条 UPDATE 中原子递增分享下载计数。
  */
 export async function incrementShareDownload(meta: ReturnType<typeof createMetadataStore>, token: string): Promise<ShareRecord | null> {
-  const record = await meta.get<ShareRecord>(SHARES_PREFIX + token);
-  if (!record) return null;
-  record.downloads = (record.downloads || 0) + 1;
-  await meta.put(SHARES_PREFIX + token, record);
-  return record;
+  if (!isValidShareToken(token)) return null;
+  return meta.incrementCounter<ShareRecord>(SHARES_PREFIX + token, 'downloads');
 }
 
 function generateToken(): string {

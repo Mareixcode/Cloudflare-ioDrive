@@ -266,15 +266,14 @@ chmod +x setup.sh
 - **アップロードプログレスバー**：リアルタイムのアップロード進捗表示（単一・マルチパート両対応）
 - **クリップボードコピー**：共有リンクをワンクリックでコピー
 - **Curl / Aria2 コマンド**：共有ページで CLI ダウンロードコマンドを自動生成
-- **管理者アカウント設定可能**：ダッシュボードから管理者のユーザー名とパスワードを変更、パスワードは SHA-256 暗号化保存
+- **管理者アカウント設定可能**：ダッシュボードから認証情報を変更し、パスワードはランダムソルト付き PBKDF2-SHA256 で保存
 
 ### 🗄️ D1 メタデータベース
 
-- **切り替え可能なバックエンド**：`wrangler.toml` で `META_DB` binding を設定すると D1（SQLite）モードが有効化されます。未設定の場合は R2 JSON ファイルモードに自動フォールバック
+- **D1 メタデータベース**：アカウント、共有、ログ、アップロードキー、マルチパートセッションには `META_DB` binding が必須です
 - **単一テーブル key-value 設計**：ImgBed の簡素化されたパターンを参考に、すべてのメタデータ（共有、ダウンロードログ、アップロードログ、アップロードリンク、設定、マルチパートアップロードセッション、モデレーションログ）を `kv` テーブルに統一保存
-- **自動テーブル作成**：最初のリクエスト時に `d1.exec(initSql)` をトリガーしてテーブル構造とインデックスを作成（冪等）
-- **ワンショットマイグレーション**：`POST /api/migration/r2-to-d1` を呼び出して R2 の `_config/`、`_shares/`、`_dl_logs/`、`_ul_logs/`、`_upload_keys/`、`_multipart/`、`_moderation_logs/` を一括で D1 に書き込み
-- **フェイルオーバー安全**：D1 の障害は try/catch で捕捉され、R2 JSON にフォールバック
+- **明示的な初期化**：リクエスト処理中の動的なテーブル作成を避け、デプロイ前に `database/init.sql` を実行
+- **障害の可視化**：D1 エラーを伝播し、複数バックエンドへのメタデータ分岐を防止
 
 ### 🔌 WebDAV ドライブマウント
 
@@ -506,7 +505,8 @@ cp wrangler.toml.example wrangler.toml
 ```toml
 name = "iodrive"
 main = "src/index.ts"
-compatibility_date = "2024-12-01"
+compatibility_date = "2026-09-07"
+compatibility_flags = ["nodejs_compat"]
 routes = [{ pattern = "YOUR_DOMAIN/*", zone_name = "YOUR_ZONE" }]
 
 [vars]
@@ -617,7 +617,7 @@ npm run deploy
 | `RANDOM_ENABLED` | ランダム画像 API マスタースイッチ | `false` |
 | `RANDOM_ALLOWED_DIRS` | ランダム API で許可するディレクトリの CSV（空 = 制限なし） | 空 |
 
-#### D1 メタデータベース（オプション、有効化後はメタデータを SQLite に保存）
+#### D1 メタデータベース（必須）
 
 ```toml
 [[d1_databases]]
@@ -626,7 +626,7 @@ database_name = "iodrive-meta"
 database_id = "<your-d1-uuid>"
 ```
 
-D1 を有効化した後、`POST /api/migration/r2-to-d1`（JWT 認証必須）を呼び出して既存の R2 JSON を一度だけ移行します。
+デプロイ前に `database/init.sql` でデータベースを初期化してください。
 
 ### ルート設定
 
@@ -700,7 +700,7 @@ drive/
 │           ├── share-link-1.png      # 共有リンクのスクリーンショット - デスクトップ
 │           └── share-link-2.png      # 共有リンクのスクリーンショット - CLIダウンロード
 ├── src/
-│   ├── index.ts                      # 🚀 アプリエントリ：ルート登録、ページルート、SEO、D1 自動テーブル作成
+│   ├── index.ts                      # 🚀 アプリエントリ：ルート登録、ページルート、SEO
 │   ├── auth.ts                       # 🔐 JWT 認証：ログイン、JWT 署名/検証ミドルウェア、レート制限
 │   ├── files.ts                      # 📁 ファイル CRUD：一覧、フォルダ作成、削除、一括削除、移動
 │   ├── upload.ts                     # 📤 ダッシュボードアップロード：単一、マルチパート（init/part/complete/abort）
@@ -713,7 +713,7 @@ drive/
 │   ├── s3-upload.ts                  # ☁️ S3 アップロード：AWS Signature V4 実装（単一 + マルチパート）
 │   ├── storage-engine.ts             # 🧰 ストレージエンジン抽象化：R2 / S3 統一インターフェース
 │   ├── storage-config.ts             # 🗄 マルチバックエンドストレージ設定管理
-│   ├── metadata-store.ts             # 🗄 メタデータ抽象レイヤー：R2 JSON / D1 二重実装を自動切替
+│   ├── metadata-store.ts             # 🗄 D1 メタデータストア
 │   ├── moderation.ts                 # 🛡 コンテンツモデレーション Provider インターフェース + ModerateContent / NSFWJS 実装
 │   ├── moderation-admin.ts           # 🛡 モデレーション設定 / ログ / テスト API
 │   ├── random.ts                     # 🎲 ランダム画像 API（Workers Cache キャッシュ付き）
@@ -729,11 +729,8 @@ drive/
 │       ├── upload-key.ts             # アップロードリンクページ（期限付きアップロード）
 │       ├── public-upload.ts          # パブリックアップロードページ（ログイン不要）
 │       └── demo.ts                   # デモサイトのランディングページ
-├── scripts/
-│   └── migrate-to-d1.ts              # ワンショット R2→D1 メタデータマイグレーションスクリプト
 ├── wrangler.toml                     # 本番環境デプロイ設定
 ├── wrangler.toml.example             # 設定ファイルテンプレート
-├── wrangler.demo.toml                # デモ環境デプロイ設定
 ├── tsconfig.json                     # TypeScript 設定
 ├── package.json                      # プロジェクト依存関係とスクリプト
 ├── LICENSE                           # GPL-3.0 ライセンス
@@ -1116,22 +1113,6 @@ R2 事前署名付きダウンロード URL を生成（ダッシュボード用
 
 ---
 
-### D1 マイグレーション API
-
-#### `POST /api/migration/r2-to-d1`（JWT 必須）
-
-R2 内の `_config/` / `_shares/` / `_dl_logs/` / `_ul_logs/` / `_upload_keys/` / `_multipart/` / `_moderation_logs/` プレフィックスを持つ JSON ファイルを一括で読み取り、D1 に書き込みます。事前に `META_DB` binding が設定されている必要があります。冪等です。
-
-**レスポンス：**
-
-```json
-{
-  "ok": true,
-  "stats": { "_config/": 1, "_shares/": 5, "_dl_logs/": 23 },
-  "errors": []
-}
-```
-
 ### ランダム画像 API（公開）
 
 #### `GET /random`
@@ -1260,8 +1241,8 @@ npm run deploy
 
 プロジェクトには CI/CD パイプライン（`.github/workflows/deploy.yml`）が含まれています：
 
-- **`main` ブランチにプッシュ** → 本番環境に自動デプロイ（drive.iodevo.com）
-- **`demo` ブランチにプッシュ** → デモ環境に自動デプロイ（demo.iodevo.com）
+- **`main` ブランチにプッシュ** → 検証済みの同一コミットを本番環境とデモ環境へ自動デプロイ
+- **`demo` ブランチにプッシュ** → 型チェックとドライランビルドのみ実行
 - **`main` または `demo` への PR** → 自動で型チェックとテストを実行
 
 #### GitHub Actions の設定
@@ -1283,16 +1264,10 @@ npm run deploy
 
 ### デモ環境
 
-プロジェクトには `wrangler.demo.toml` で設定されたデモサイトもあります：
+デモ環境は `.github/workflows/deploy.yml` により、検証済みの同一 `main` コミットから生成されます：
 
 - デモサイト：[demo.iodevo.com](https://demo.iodevo.com)
 - デモサイトでは実際のアップロードリクエストがブロックされ、UI のみが表示されます
-
-デモ環境のデプロイ：
-
-```bash
-npm run deploy:demo
-```
 
 ### デプロイ後のチェックリスト
 

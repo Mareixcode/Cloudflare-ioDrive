@@ -5,12 +5,14 @@ import { writeUploadLog } from './upload-logs';
 import { getAllS3ConfigsAsync } from './storage';
 import { createStorageEngine } from './storage-engine';
 import { createMetadataStore } from './metadata-store';
-import { incrementUploadKeyUsage } from './upload-keys';
+import { getUploadKeyRecord, incrementUploadKeyUsage } from './upload-keys';
 import { moderateAndCleanup } from './moderation';
 import { s3PutObject } from './s3-upload';
 import { clearFileCache } from './cache';
+import { normalizeUploadDirectory } from './storage-path';
 
 export const picgoRoutes = new Hono<{ Bindings: Env }>();
+const MAX_UPLOAD_SIZE = 20 * 1024 * 1024;
 
 picgoRoutes.post('/', async (c) => {
   const ip = c.req.header('CF-Connecting-IP') || '';
@@ -36,6 +38,9 @@ picgoRoutes.post('/', async (c) => {
   if (!file) {
     return c.json({ success: false, message: '未找到上传的文件' }, 400);
   }
+  if (file.size > MAX_UPLOAD_SIZE) {
+    return c.json({ success: false, message: '文件不能超过 20MB' }, 413);
+  }
   
   if (!uploadKeyId) {
     return c.json({ success: false, message: '未提供 Authorization: Bearer <UploadKey>' }, 401);
@@ -47,15 +52,18 @@ picgoRoutes.post('/', async (c) => {
   let path = 'uploads/';
   let keyLabel: string | undefined;
 
-  const keyData = await incrementUploadKeyUsage(meta, uploadKeyId);
+  const keyData = await getUploadKeyRecord(meta, uploadKeyId);
   if (!keyData) return c.json({ success: false, message: '上传密钥(Upload Key)不存在' }, 404);
   if (!keyData.active) return c.json({ success: false, message: '上传密钥已禁用' }, 403);
   if (new Date(keyData.expires) < new Date()) return c.json({ success: false, message: '上传密钥已过期' }, 410);
   
-  path = keyData.path;
+  try {
+    path = normalizeUploadDirectory(keyData.path);
+  } catch {
+    return c.json({ success: false, message: '上传密钥路径无效' }, 500);
+  }
   keyLabel = keyData.label;
 
-  if (!path.endsWith('/')) path += '/';
   const key2 = await uniqueKey(engine, path, file.name);
   const contentType = file.type || getContentType(file.name) || 'application/octet-stream';
   const buf = await file.arrayBuffer();
@@ -65,7 +73,7 @@ picgoRoutes.post('/', async (c) => {
 
   // Sync to other S3 backends
   const s3Cfgs = await getAllS3ConfigsAsync(c.env);
-  const syncCfgs = s3Cfgs.slice(1);
+  const syncCfgs = engine.kind === 'r2' ? s3Cfgs : s3Cfgs.slice(1);
   let s3Ok = false;
   for (const s3cfg of syncCfgs) {
     try { 
@@ -75,6 +83,8 @@ picgoRoutes.post('/', async (c) => {
       console.error('S3 upload error:', e); 
     }
   }
+
+  await incrementUploadKeyUsage(meta, uploadKeyId);
 
   c.executionCtx.waitUntil(
     writeUploadLog(c.env, {
@@ -106,7 +116,7 @@ picgoRoutes.post('/', async (c) => {
   } else {
     // Fallback: ioDrive's public stream route if they haven't configured a public domain but are using the app
     const origin = new URL(c.req.url).origin;
-    fileUrl = `${origin}/f/${key2}`;
+    fileUrl = `${origin}/f/${key2.split('/').map(encodeURIComponent).join('/')}`;
   }
 
   return c.json({ 

@@ -188,7 +188,7 @@ export async function moderateAndCleanup(env: Env, info: {
       source: info.source,
     };
     const meta = createMetadataStore(env);
-    const logId = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+    const logId = Date.now().toString(36) + '_' + crypto.randomUUID();
     await meta.put(MODERATION_LOG_PREFIX + logId, logEntry);
   } catch (e) {
     console.error('moderateAndCleanup failed:', e);

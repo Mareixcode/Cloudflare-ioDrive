@@ -1,4 +1,5 @@
 export function renderUploadKeyPage(keyId: string, siteKey: string): string {
+  const keyIdJson = JSON.stringify(keyId).replace(/</g, '\\u003c');
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -72,8 +73,7 @@ export function renderUploadKeyPage(keyId: string, siteKey: string): string {
   </div>
   <input type="file" id="file-input" multiple style="display:none">
   <script>
-    function _js(s){return s.replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'").replace(/</g,'\\x3c')}
-    var KEY_ID=_js('${keyId}');
+    var KEY_ID=${keyIdJson};
     var tsToken='',uploadPath='uploads/',selectedFiles=[];
     var PS=20*1024*1024,MC=6;
 

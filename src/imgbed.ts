@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from './types';
 import { verifyTurnstile } from './turnstile';
-import { getContentType, uniqueKey } from './upload-utils';
+import { getSafeImageContentType, uniqueKey } from './upload-utils';
 import { writeUploadLog } from './upload-logs';
 import { getAllS3ConfigsAsync } from './storage';
 import { createStorageEngine } from './storage-engine';
@@ -9,19 +9,14 @@ import { moderateAndCleanup } from './moderation';
 import { s3PutObject } from './s3-upload';
 import { clearFileCache } from './cache';
 import { jwtAuth } from './auth';
+import { assertSafeStorageKey } from './storage-path';
 
 export const imgbedRoutes = new Hono<{ Bindings: Env }>();
 
 const IMGBED_PATH = 'uploads/imgbed/';
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'];
-const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp', 'image/x-icon'];
-
-function isImageFile(filename: string, contentType?: string): boolean {
-  const ext = filename.split('.').pop()?.toLowerCase() || '';
-  if (ALLOWED_EXTS.includes(ext)) return true;
-  if (contentType && IMAGE_TYPES.some(t => contentType.startsWith(t))) return true;
-  return false;
+function isImageFile(filename: string): boolean {
+  return getSafeImageContentType(filename) !== null;
 }
 
 // ── 公开上传（Turnstile 验证） ──
@@ -37,8 +32,8 @@ imgbedRoutes.post('/upload', async (c) => {
     return c.json({ error: '人机验证失败' }, 403);
   }
 
-  if (!isImageFile(file.name, file.type)) {
-    return c.json({ error: '仅支持图片格式（jpg/png/gif/webp/svg/bmp/ico）' }, 400);
+  if (!isImageFile(file.name)) {
+    return c.json({ error: '仅支持图片格式（jpg/png/gif/webp/bmp/ico）' }, 400);
   }
   if (file.size > MAX_SIZE) {
     return c.json({ error: '图片大小不能超过 10MB' }, 400);
@@ -46,7 +41,7 @@ imgbedRoutes.post('/upload', async (c) => {
 
   const engine = await createStorageEngine(c.env);
   const key = await uniqueKey(engine, IMGBED_PATH, file.name);
-  const contentType = file.type || getContentType(file.name) || 'application/octet-stream';
+  const contentType = getSafeImageContentType(file.name)!;
   const buf = await file.arrayBuffer();
 
   // 主存储上传
@@ -54,7 +49,7 @@ imgbedRoutes.post('/upload', async (c) => {
 
   // 同步到其他 S3 后端
   const s3Cfgs = await getAllS3ConfigsAsync(c.env);
-  const syncCfgs = s3Cfgs.slice(1);
+  const syncCfgs = engine.kind === 'r2' ? s3Cfgs : s3Cfgs.slice(1);
   for (const s3cfg of syncCfgs) {
     try { await s3PutObject(s3cfg, key, buf, contentType); } catch (e) { console.error('S3 sync error:', e); }
   }
@@ -90,7 +85,7 @@ imgbedRoutes.post('/upload', async (c) => {
     fileUrl = `https://${c.env.PUBLIC_DOMAIN}/${encoded}`;
   } else {
     const origin = new URL(c.req.url).origin;
-    fileUrl = `${origin}/f/${key}`;
+    fileUrl = `${origin}/f/${key.split('/').map(encodeURIComponent).join('/')}`;
   }
 
   return c.json({ ok: true, url: fileUrl, key, name: file.name });
@@ -113,21 +108,21 @@ imgbedRoutes.get('/list', jwtAuth, async (c) => {
           url = `https://${c.env.PUBLIC_DOMAIN}/${obj.key.split('/').map(encodeURIComponent).join('/')}`;
         } else {
           const origin = new URL(c.req.url).origin;
-          url = `${origin}/f/${obj.key}`;
+          url = `${origin}/f/${obj.key.split('/').map(encodeURIComponent).join('/')}`;
         }
         return {
           key: obj.key,
           name: obj.key.replace(IMGBED_PATH, ''),
           size: obj.size,
           uploaded: obj.uploaded || new Date().toISOString(),
-          contentType: obj.contentType || 'image/jpeg',
+          contentType: getSafeImageContentType(obj.key) || 'image/jpeg',
           url,
         };
       })
       .sort((a, b) => new Date(b.uploaded).getTime() - new Date(a.uploaded).getTime());
 
     return c.json({ ok: true, items });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Imgbed list error:', err);
     return c.json({ ok: false, error: '获取图床列表失败' }, 500);
   }
@@ -137,13 +132,19 @@ imgbedRoutes.get('/list', jwtAuth, async (c) => {
 imgbedRoutes.delete('/:key{.+}', jwtAuth, async (c) => {
   const key = c.req.param('key');
   if (!key) return c.json({ error: '缺少文件路径' }, 400);
+  try {
+    assertSafeStorageKey(key);
+  } catch {
+    return c.json({ error: '文件路径无效' }, 400);
+  }
+  if (!key.startsWith(IMGBED_PATH)) return c.json({ error: '只能删除图床目录中的文件' }, 400);
 
   try {
     const engine = await createStorageEngine(c.env);
     await engine.delete(key);
     c.executionCtx.waitUntil(clearFileCache(c.env, '', key));
     return c.json({ ok: true });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Imgbed delete error:', err);
     return c.json({ ok: false, error: '删除失败' }, 500);
   }

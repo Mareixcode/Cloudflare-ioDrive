@@ -5,12 +5,15 @@ import { getContentType, uniqueKey } from './upload-utils';
 import { writeUploadLog } from './upload-logs';
 import { getAllS3ConfigsAsync } from './storage';
 import { createStorageEngine } from './storage-engine';
-import { createMetadataStore } from './metadata-store';
 import { moderateAndCleanup } from './moderation';
-import { s3PutObject, s3CreateMultipart, s3UploadPart, s3CompleteMultipart, s3AbortMultipart } from './s3-upload';
+import { s3PutObject } from './s3-upload';
 import { clearFileCache } from './cache';
+import { abortMultipartUpload, completeMultipartUpload, startMultipartUpload, uploadMultipartPart } from './multipart';
+import { errorMessage } from './errors';
+import { normalizeUploadDirectory } from './storage-path';
 
 export const uploadRoutes = new Hono<{ Bindings: Env }>();
+const SINGLE_UPLOAD_LIMIT = 20 * 1024 * 1024;
 
 uploadRoutes.use('*', jwtAuth);
 
@@ -19,10 +22,18 @@ uploadRoutes.use('*', jwtAuth);
 uploadRoutes.post('/single', async (c) => {
   const body = await c.req.parseBody();
   const file = body['file'];
-  const path = (body['path'] as string) || 'uploads/';
+  let path: string;
+  try {
+    path = normalizeUploadDirectory(typeof body['path'] === 'string' ? body['path'] : 'uploads/');
+  } catch {
+    return c.json({ error: '上传路径无效' }, 400);
+  }
 
   if (!file || !(file instanceof File)) {
     return c.json({ error: '缺少文件' }, 400);
+  }
+  if (file.size > SINGLE_UPLOAD_LIMIT) {
+    return c.json({ error: '单文件上传不能超过 20MB，请使用分片上传' }, 413);
   }
 
   const engine = await createStorageEngine(c.env);
@@ -35,7 +46,7 @@ uploadRoutes.post('/single', async (c) => {
 
   // Sync to other S3 backends（主后端已通过 engine.put 写入）
   const s3Cfgs = await getAllS3ConfigsAsync(c.env);
-  const syncCfgs = s3Cfgs.slice(1);
+  const syncCfgs = engine.kind === 'r2' ? s3Cfgs : s3Cfgs.slice(1);
   let s3Ok = false;
   for (const s3cfg of syncCfgs) {
     try {
@@ -76,33 +87,23 @@ uploadRoutes.post('/single', async (c) => {
 
 uploadRoutes.post('/init', async (c) => {
   const body = await c.req.json<{ filename: string; size: number; path?: string }>();
-  const { filename } = body;
-  const path = body.path || 'uploads/';
+  const { filename, size } = body;
+  let path: string;
+  try {
+    path = normalizeUploadDirectory(body.path || 'uploads/');
+  } catch {
+    return c.json({ error: '上传路径无效' }, 400);
+  }
 
   if (!filename) return c.json({ error: '缺少文件名' }, 400);
+  if (!Number.isFinite(size) || size <= 0) return c.json({ error: '文件大小无效' }, 400);
 
   const engine = await createStorageEngine(c.env);
   const key = await uniqueKey(engine, path, filename);
   const contentType = getContentType(filename);
 
-  // Primary init via S3 engine
-  const mp = await engine.createMultipartUpload(key, { contentType });
-
-  // Sync init to all S3 backends
-  const s3Cfgs = await getAllS3ConfigsAsync(c.env);
-  const s3UploadIds: Record<string, string> = {};
-  for (const s3cfg of s3Cfgs) {
-    const s3Uid = await s3CreateMultipart(s3cfg, key, contentType);
-    if (s3Uid) s3UploadIds[s3cfg.bucket] = s3Uid;
-  }
-
-  // Store multipart metadata via MetadataStore
-  if (Object.keys(s3UploadIds).length > 0) {
-    const meta = createMetadataStore(c.env);
-    await meta.put('_multipart/' + mp.uploadId, { s3UploadIds, key, filename });
-  }
-
-  return c.json({ uploadId: mp.uploadId, key });
+  const uploadId = await startMultipartUpload(c.env, engine, key, filename, contentType, { source: 'dashboard' });
+  return c.json({ uploadId, key });
 });
 
 // ── Upload part ──
@@ -118,36 +119,13 @@ uploadRoutes.post('/part', async (c) => {
   if (!(chunk instanceof File)) return c.json({ error: '无效的文件数据' }, 400);
 
   const engine = await createStorageEngine(c.env);
-  const meta = createMetadataStore(c.env);
   const chunkBuf = await chunk.arrayBuffer();
-
-  // S3 primary part upload
-  let partResult: { partNumber: number; etag: string };
-  // 读取多段上传元数据（一次读取，后续复用）
-  const mpData = await meta.get<{ s3UploadIds: Record<string, string>; key: string; filename: string }>('_multipart/' + uploadId);
-
-  if (!mpData) return c.json({ error: '分片上传会话不存在' }, 404);
-  const s3Cfgs = await getAllS3ConfigsAsync(c.env);
-  const primaryS3 = s3Cfgs[0];
-  const primaryUid = primaryS3 ? mpData.s3UploadIds?.[primaryS3.bucket] : null;
-  if (!primaryS3 || !primaryUid) return c.json({ error: 'S3 主存储未配置' }, 500);
-  const etag = await s3UploadPart(primaryS3, key, primaryUid, partNumber, chunkBuf);
-  if (!etag) return c.json({ error: 'S3 分片上传失败' }, 500);
-  partResult = { partNumber, etag };
-
-  // Sync part to other S3 backends（fire-and-forget，失败时记录日志）
-  if (mpData && mpData.s3UploadIds) {
-    const s3Cfgs2 = await getAllS3ConfigsAsync(c.env);
-    const syncCfgs = s3Cfgs2.slice(1);
-    for (const s3cfg of syncCfgs) {
-      const s3Uid = mpData.s3UploadIds?.[s3cfg.bucket];
-      if (s3Uid) s3UploadPart(s3cfg, key, s3Uid, partNumber, chunkBuf).catch(e => {
-        console.error(`S3 sync part failed (bucket=${s3cfg.bucket}, part=${partNumber}):`, e);
-      });
-    }
+  try {
+    const partResult = await uploadMultipartPart(c.env, engine, uploadId, key, partNumber, chunkBuf);
+    return c.json(partResult);
+  } catch (error) {
+    return c.json({ error: errorMessage(error, '分片上传失败') }, 400);
   }
-
-  return c.json({ partNumber: partResult.partNumber, etag: partResult.etag });
 });
 
 // ── Complete multipart upload ──
@@ -159,22 +137,13 @@ uploadRoutes.post('/complete', async (c) => {
   if (!uploadId || !key || !parts?.length) return c.json({ error: '缺少参数' }, 400);
 
   const engine = await createStorageEngine(c.env);
-  const meta = createMetadataStore(c.env);
-  let object: { key: string; size: number };
-
-  // 读取多段上传元数据（一次读取，后续复用）
-  const mpData = await meta.get<{ s3UploadIds: Record<string, string>; filename?: string }>('_multipart/' + uploadId);
-
-  // S3 primary complete
-  if (mpData) {
-    const s3Cfgs = await getAllS3ConfigsAsync(c.env);
-    const primaryS3 = s3Cfgs[0];
-    const primaryUid = primaryS3 ? mpData.s3UploadIds?.[primaryS3.bucket] : null;
-    if (primaryS3 && primaryUid) {
-      await s3CompleteMultipart(primaryS3, key, primaryUid, parts);
-    }
+  let completed: Awaited<ReturnType<typeof completeMultipartUpload>>;
+  try {
+    completed = await completeMultipartUpload(c.env, engine, uploadId, key, parts);
+  } catch (error) {
+    return c.json({ error: errorMessage(error, '完成分片上传失败') }, 400);
   }
-  object = { key, size: 0 };
+  const { object, metadata, syncFailures } = completed;
 
   // S3 complete 后获取实际文件大小
   if (object.size === 0) {
@@ -184,22 +153,8 @@ uploadRoutes.post('/complete', async (c) => {
     } catch {}
   }
 
-  // Sync complete to other S3 backends（fire-and-forget，失败时记录日志）
-  if (mpData && mpData.s3UploadIds) {
-    const s3Cfgs2 = await getAllS3ConfigsAsync(c.env);
-    const syncCfgs = s3Cfgs2.slice(1);
-    for (const s3cfg of syncCfgs) {
-      const s3Uid = mpData.s3UploadIds?.[s3cfg.bucket];
-      if (s3Uid) s3CompleteMultipart(s3cfg, key, s3Uid, parts).catch(e => {
-        console.error(`S3 sync complete failed (bucket=${s3cfg.bucket}):`, e);
-      });
-    }
-    await meta.delete('_multipart/' + uploadId).catch(() => {});
-  }
-
   const name = key.split('/').pop() || key;
-  // contentType：从 mpData.filename 推导
-  const filename = mpData?.filename || name;
+  const filename = metadata.filename || name;
   const contentType = getContentType(filename) || 'application/octet-stream';
   c.executionCtx.waitUntil(
     writeUploadLog(c.env, {
@@ -224,7 +179,7 @@ uploadRoutes.post('/complete', async (c) => {
   // 清除对应的 KV 缓存
   c.executionCtx.waitUntil(clearFileCache(c.env, '', key));
 
-  return c.json({ ok: true, key: object.key, name });
+  return c.json({ ok: true, key: object.key, name, syncFailures });
 });
 
 // ── Abort ──
@@ -236,24 +191,7 @@ uploadRoutes.post('/abort', async (c) => {
   if (!uploadId || !key) return c.json({ error: '缺少参数' }, 400);
 
   const engine = await createStorageEngine(c.env);
-  const meta = createMetadataStore(c.env);
-
-
-  // 取消 S3 后端的多段上传
-  const mpData = await meta.get<{ s3UploadIds: Record<string, string> }>('_multipart/' + uploadId).catch(() => null);
-  if (mpData) {
-    try {
-      if (mpData.s3UploadIds) {
-        const s3Cfgs = await getAllS3ConfigsAsync(c.env);
-        for (const s3cfg of s3Cfgs) {
-          const s3Uid = mpData.s3UploadIds?.[s3cfg.bucket];
-          if (s3Uid) s3AbortMultipart(s3cfg, key, s3Uid).catch(() => {});
-        }
-      }
-    } catch {}
-  }
-
-  await meta.delete('_multipart/' + uploadId).catch(() => {});
+  await abortMultipartUpload(c.env, engine, uploadId, key);
 
   return c.json({ ok: true });
 });

@@ -1017,7 +1017,7 @@ export function renderDashboard(isDemo: boolean = false): string {
         var a=ancestors[i];
         h+='<span class="bc-sep">/</span>';
         if(i===ancestors.length-1)h+='<span class="bc-item bc-cur">'+esc(a.name)+'</span>';
-        else h+='<span class="bc-item" onclick="navigateTo(&apos;'+esc(a.path)+'&apos;)">'+esc(a.name)+'</span>';
+        else h+='<span class="bc-item" data-path="'+esc(encodeURIComponent(a.path))+'" onclick="navigateTo(decodeURIComponent(this.dataset.path))">'+esc(a.name)+'</span>';
       }
       bc.innerHTML=h;
     }
@@ -1156,7 +1156,7 @@ export function renderDashboard(isDemo: boolean = false): string {
           '<div class="lc-tags">'+tags+'</div>'+
           '<div class="lc-actions" onclick="event.stopPropagation()">'+
             '<button onclick="showLogDetail(&apos;'+type+'&apos;,'+idx+')" title="详情">ℹ️</button>'+
-            '<button class="danger" onclick="deleteLog(&apos;'+type+'&apos;,&apos;'+esc(x.logKey||'')+'&apos;)" title="删除">🗑</button>'+
+            '<button class="danger" data-key="'+esc(encodeURIComponent(x.logKey||''))+'" onclick="deleteLog(&apos;'+type+'&apos;,decodeURIComponent(this.dataset.key))" title="删除">🗑</button>'+
           '</div>'+
         '</div>';
       }
@@ -1199,12 +1199,19 @@ export function renderDashboard(isDemo: boolean = false): string {
           '</div>'+
           '<div class="lc-tags">'+statusTag+'</div>'+
           '<div class="lc-actions">'+
-            '<button onclick="var b=this;navigator.clipboard.writeText(&apos;'+url+'&apos;);b.textContent=&apos;✓&apos;;setTimeout(function(){b.textContent=&apos;复制&apos;},1000)" title="复制链接">📋</button>'+
-            '<button onclick="deleteShare(&apos;'+x.token+'&apos;,&apos;'+esc(x.name||x.key)+'&apos;)" class="danger" title="删除">🗑</button>'+
+            '<button data-url="'+esc(encodeURIComponent(url))+'" onclick="copyShareLink(this)" title="复制链接">📋</button>'+
+            '<button data-token="'+esc(encodeURIComponent(x.token||''))+'" data-name="'+esc(encodeURIComponent(x.name||x.key))+'" onclick="deleteShare(decodeURIComponent(this.dataset.token),decodeURIComponent(this.dataset.name))" class="danger" title="删除">🗑</button>'+
           '</div>'+
         '</div>';
       }
       list.innerHTML=h;
+    }
+
+    function copyShareLink(button){
+      var url=decodeURIComponent(button.dataset.url||'');
+      navigator.clipboard.writeText(url);
+      button.textContent='✓';
+      setTimeout(function(){button.textContent='复制'},1000);
     }
 
     async function deleteShare(token,name){
@@ -1243,7 +1250,7 @@ export function renderDashboard(isDemo: boolean = false): string {
           '<p><b>分享令牌：</b>'+esc(x.shareToken||'-')+'</p>';
       }else{
         var srcMap={dashboard:'后台',public:'公开上传','upload-key':'上传链接'};
-        html+='<p><b>来源：</b>'+(srcMap[x.source]||x.source)+'</p>';
+        html+='<p><b>来源：</b>'+esc(srcMap[x.source]||x.source||'-')+'</p>';
         if(x.uploadKeyLabel)html+='<p><b>链接标签：</b>'+esc(x.uploadKeyLabel)+'</p>';
       }
       html+='<p><b>IP：</b>'+esc(x.ip||'-')+'</p>'+
@@ -1276,7 +1283,7 @@ export function renderDashboard(isDemo: boolean = false): string {
 
     // ── Upload ──
     function pickFile(){if(IS_DEMO)return;var i=document.createElement('input');i.type='file';i.multiple=true;i.onchange=function(){for(var j=0;j<i.files.length;j++)up(i.files[j])};i.click()}
-    async function up(file){if(IS_DEMO)return;document.getElementById('up-panel').classList.add('on');var id='u'+Date.now()+Math.random().toString(36).slice(2,6);document.getElementById('up-list').insertAdjacentHTML('beforeend','<div class="up-item" id="'+id+'"><div class="nm">'+file.name+' ('+fmt(file.size)+')</div><div class="up-bar"><div class="fl" style="width:0%"></div></div><div class="st">准备...</div></div>');try{if(file.size<=PS)await upS(file,id);else await upM(file,id);st(id,'✅ 完成');loadFiles()}catch(e){st(id,'❌ '+e.message)}}
+    async function up(file){if(IS_DEMO)return;document.getElementById('up-panel').classList.add('on');var id='u'+Date.now()+Math.random().toString(36).slice(2,6);document.getElementById('up-list').insertAdjacentHTML('beforeend','<div class="up-item" id="'+id+'"><div class="nm">'+esc(file.name)+' ('+fmt(file.size)+')</div><div class="up-bar"><div class="fl" style="width:0%"></div></div><div class="st">准备...</div></div>');try{if(file.size<=PS)await upS(file,id);else await upM(file,id);st(id,'✅ 完成');loadFiles()}catch(e){st(id,'❌ '+e.message)}}
     function xhrUp(url,fd,id){return new Promise(function(ok,no){var x=new XMLHttpRequest(),t0=Date.now();x.open('POST',url);var tk=localStorage.getItem('iodrive_token');if(tk)x.setRequestHeader('Authorization','Bearer '+tk);x.upload.onprogress=function(e){if(e.lengthComputable){var el=(Date.now()-t0)/1000,sp=el>0?e.loaded/el:0,pct=Math.round(e.loaded/e.total*100),rm=sp>0?(e.total-e.loaded)/sp:0;prog(id,pct);st(id,fmtS(sp)+' · '+pct+'% · 剩余 '+fmtE(rm))}};x.onload=function(){if(x.status>=200&&x.status<300){try{ok(JSON.parse(x.responseText))}catch{ok(x.responseText)}}else{try{no(new Error(JSON.parse(x.responseText).error))}catch{no(new Error('失败 '+x.status))}}};x.onerror=function(){no(new Error('网络错误'))};x.send(fd)})}
     async function upS(f,id){var fd=new FormData();fd.append('file',f);fd.append('path',currentPath);await xhrUp('/api/upload/single',fd,id)}
     async function upM(f,id){var r=await api('/api/upload/init',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:f.name,size:f.size,path:currentPath})});if(!r||!r.ok)throw new Error('初始化失败');var d=await r.json(),uid=d.uploadId,key=d.key;var tp=Math.ceil(f.size/PS),parts=[],pp=new Array(tp).fill(0),t0=Date.now(),q=[];for(var i=0;i<tp;i++){(function(pi,pn){var s=pi*PS,e=Math.min(s+PS,f.size),ch=f.slice(s,e);q.push(function(){return new Promise(function(ok,no){var fd=new FormData();fd.append('uploadId',uid);fd.append('key',key);fd.append('partNumber',String(pn));fd.append('chunk',ch);var x=new XMLHttpRequest();x.open('POST','/api/upload/part');var tk=localStorage.getItem('iodrive_token');if(tk)x.setRequestHeader('Authorization','Bearer '+tk);x.upload.onprogress=function(ev){if(ev.lengthComputable){pp[pi]=ev.loaded;var td=0;for(var j=0;j<pp.length;j++)td+=pp[j];var el=(Date.now()-t0)/1000,sp=el>0?td/el:0,pct=Math.round(td/f.size*100),rm=sp>0?(f.size-td)/sp:0;prog(id,pct);st(id,fmtS(sp)+' · '+pct+'% (分片 '+pn+'/'+tp+') · '+fmtE(rm))}};x.onload=function(){if(x.status>=200&&x.status<300){parts.push({partNumber:pn,etag:JSON.parse(x.responseText).etag});ok()}else{no(new Error('分片'+pn+'失败'))}};x.onerror=function(){no(new Error('网络错误'))};x.send(fd)})})})(i,i+1)}try{await conc(q,MC)}catch(e){api('/api/upload/abort',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uploadId:uid,key:key})}).catch(function(){});throw e}parts.sort(function(a,b){return a.partNumber-b.partNumber});var cr=await api('/api/upload/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uploadId:uid,key:key,parts:parts})});if(!cr||!cr.ok)throw new Error('完成失败')}
@@ -1426,8 +1433,8 @@ export function renderDashboard(isDemo: boolean = false): string {
           var status=expired?'<span style="color:#ef4444">已过期</span>':k.active?'<span style="color:#22c55e">有效</span>':'<span style="color:var(--sub)">已停用</span>';
           h+='<tr><td>'+esc(k.label)+'</td><td style="font-family:monospace;font-size:12px">'+esc(k.path)+'</td>'+
             '<td>'+fmtTime(k.created)+'</td><td>'+fmtTime(k.expires)+'</td><td>'+k.usedCount+'</td><td>'+status+'</td>'+
-            '<td><button class="btn btn-s" onclick="copyUploadUrl(&apos;'+k.id+'&apos;)">复制</button> '+
-            '<button class="btn btn-s btn-danger" onclick="deleteUploadKey(&apos;'+k.id+'&apos;)">删除</button></td></tr>';
+            '<td><button class="btn btn-s" data-id="'+esc(encodeURIComponent(k.id||''))+'" onclick="copyUploadUrl(decodeURIComponent(this.dataset.id))">复制</button> '+
+            '<button class="btn btn-s btn-danger" data-id="'+esc(encodeURIComponent(k.id||''))+'" onclick="deleteUploadKey(decodeURIComponent(this.dataset.id))">删除</button></td></tr>';
         }
         tbody.innerHTML=h;
       }catch(e){console.error('loadUploadKeys:',e);tbody.innerHTML='';empty.style.display='block';empty.textContent='加载失败'}
@@ -1532,13 +1539,14 @@ export function renderDashboard(isDemo: boolean = false): string {
         if(b.primary)badges+='<span class="sc-badge primary">主存储</span>';
         if(b.sync)badges+='<span class="sc-badge sync">同步</span>';
         var providerName=PROVIDER_PRESETS[b.provider]?PROVIDER_PRESETS[b.provider].name:b.provider;
+        var encodedName=encodeURIComponent(b.name);
         html+='<div class="storage-card">'+
           '<div class="sc-head">'+
             '<div class="sc-name"><span>'+esc(b.name)+'</span>'+badges+'</div>'+
             '<div class="sc-actions">'+
-              '<button class="btn btn-s" onclick="checkStorageStatus(\\''+esc(b.name)+'\\')">检测状态</button>'+
-              '<button class="btn btn-s" onclick="editStorageBackend(\\''+esc(b.name)+'\\')">编辑</button>'+
-              '<button class="btn btn-s" style="color:#ef4444" onclick="deleteStorageBackend(\\''+esc(b.name)+'\\')">删除</button>'+
+              '<button class="btn btn-s" data-name="'+esc(encodedName)+'" onclick="checkStorageStatus(decodeURIComponent(this.dataset.name))">检测状态</button>'+
+              '<button class="btn btn-s" data-name="'+esc(encodedName)+'" onclick="editStorageBackend(decodeURIComponent(this.dataset.name))">编辑</button>'+
+              '<button class="btn btn-s" data-name="'+esc(encodedName)+'" style="color:#ef4444" onclick="deleteStorageBackend(decodeURIComponent(this.dataset.name))">删除</button>'+
             '</div>'+
           '</div>'+
           '<div class="sc-info">'+
@@ -1548,14 +1556,14 @@ export function renderDashboard(isDemo: boolean = false): string {
             '<span>📍 '+esc(b.region)+'</span>'+
             (b.hasCredentials?'<span>🔑 已配置</span>':'<span style="color:#ef4444">🔑 未配置</span>')+
           '</div>'+
-          '<div id="status-'+esc(b.name)+'" style="margin-top:8px"></div>'+
+          '<div id="status-'+esc(encodedName)+'" style="margin-top:8px"></div>'+
         '</div>';
       });
       list.innerHTML=html;
     }
 
     async function checkStorageStatus(name){
-      var el=document.getElementById('status-'+name);
+      var el=document.getElementById('status-'+encodeURIComponent(name));
       if(!el)return;
       el.innerHTML='<span class="sc-status"><span class="dot checking"></span> 检测中...</span>';
       var r=await api('/api/storage/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})});
@@ -1565,7 +1573,7 @@ export function renderDashboard(isDemo: boolean = false): string {
         var extra=d.fileCount!==undefined?' · '+d.fileCount+' 个对象':'';
         el.innerHTML='<span class="sc-status"><span class="dot online"></span> 在线 ('+d.responseTime+'ms'+extra+')</span>';
       }else{
-        el.innerHTML='<span class="sc-status"><span class="dot offline"></span> 离线: '+(d.error||'未知错误')+'</span>';
+        el.innerHTML='<span class="sc-status"><span class="dot offline"></span> 离线: '+esc(String(d.error||'未知错误'))+'</span>';
       }
     }
 
@@ -1899,9 +1907,10 @@ export function renderDashboard(isDemo: boolean = false): string {
         var time=new Date(e.time).toLocaleString('zh-CN');
         var action=e.action==='deleted'?'deleted':(e.label==='racy'?'racy':'kept');
         var actionText=e.action==='deleted'?'已删除':(e.label==='racy'?'保留(racy)':'保留(safe)');
+        var adult=Number(e.scores&&e.scores.adult)||0,racy=Number(e.scores&&e.scores.racy)||0;
         return '<div class="log-item">'+
           '<div class="log-main"><div class="log-name">'+esc(e.name||e.key)+'</div>'+
-          '<div class="log-meta">'+time+' · '+esc(e.ip||'-')+' · '+(e.provider||'')+' · adult='+((e.scores&&e.scores.adult)||0).toFixed(2)+' racy='+((e.scores&&e.scores.racy)||0).toFixed(2)+'</div></div>'+
+          '<div class="log-meta">'+time+' · '+esc(e.ip||'-')+' · '+esc(e.provider||'')+' · adult='+adult.toFixed(2)+' racy='+racy.toFixed(2)+'</div></div>'+
           '<div class="log-actions"><span class="mod-badge '+action+'">'+actionText+'</span></div>'+
         '</div>';
       }).join('');

@@ -76,6 +76,10 @@ jobs:
             echo "❌ 缺少 Secret: TURNSTILE_SECRET"
             exit 1
           fi
+          if [ -z "${{ secrets.META_DB_ID }}" ]; then
+            echo "❌ 缺少 Secret: META_DB_ID"
+            exit 1
+          fi
           if [ -z "${{ secrets.R2_ACCESS_KEY }}" ]; then
             echo "❌ 缺少 Secret: R2_ACCESS_KEY"
             exit 1
@@ -115,6 +119,9 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
+      - name: 类型检查与构建
+        run: npm test
+
       - name: 确定 R2 存储桶名称
         id: r2
         run: |
@@ -129,7 +136,8 @@ jobs:
           cat > wrangler.toml <<EOF
           name = "${{ inputs.worker_name }}"
           main = "src/index.ts"
-          compatibility_date = "2024-12-01"
+          compatibility_date = "2026-09-07"
+          compatibility_flags = ["nodejs_compat"]
           account_id = "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
           routes = [{ pattern = "${{ inputs.route_prefix }}.${{ inputs.domain }}/*", zone_name = "${{ inputs.domain }}" }]
 
@@ -173,16 +181,14 @@ jobs:
           EOF
           fi
 
-          # 追加 META_DB (D1) 绑定（如果 Secrets 中配置了 META_DB_ID）
-          if [ -n "${{ secrets.META_DB_ID }}" ]; then
-            cat >> wrangler.toml <<EOF
+          # META_DB (D1) 是应用必需绑定
+          cat >> wrangler.toml <<EOF
 
           [[d1_databases]]
           binding = "META_DB"
           database_name = "iodrive-meta"
           database_id = "${{ secrets.META_DB_ID }}"
           EOF
-          fi
 
           # 追加 Rate Limiter 限流绑定
           cat >> wrangler.toml <<EOF

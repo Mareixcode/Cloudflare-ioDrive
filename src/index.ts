@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
 import type { Env } from './types';
 import { authRoutes } from './auth';
@@ -21,34 +21,34 @@ import { renderUploadKeyPage } from './html/upload-key';
 import { renderPublicUploadPage } from './html/public-upload';
 import { renderDemo } from './html/demo';
 import { renderImgbed } from './html/imgbed';
-import { ensureD1Schema } from './metadata-store';
 import { createStorageEngine } from './storage-engine';
 import { webdavRoutes } from './webdav';
 import { randomRoutes, randomAdminRoutes } from './random';
 import { moderationAdminRoutes } from './moderation-admin';
 import { rateLimitMiddleware } from './rate-limit';
+import { getSafeImageContentType } from './upload-utils';
+import { assertSafeStorageKey } from './storage-path';
 
 const app = new Hono<{ Bindings: Env }>();
 
 // 启用 Cloudflare 防火墙限流中间件
 app.use('*', rateLimitMiddleware());
 
-app.use('/api/*', cors());
-
-// ── D1 schema 初始化（异步触发，不阻塞请求） ──
-//
-// 通过在 fetch 入口尝试初始化 D1 表结构，使得第一次启动时无需手动跑迁移脚本。
-// 初始化逻辑幂等（CREATE IF NOT EXISTS），多次执行安全。
 app.use('*', async (c, next) => {
-  c.executionCtx.waitUntil(ensureD1Schema(c.env));
   await next();
+  c.header('X-Content-Type-Options', 'nosniff');
+  c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  c.header('X-Frame-Options', 'DENY');
+  c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
 });
+
+app.use('/api/*', cors());
 
 
 // ── Demo site hostname ────────────────────
 
 const DEMO_HOST = 'demo.iodevo.com';
-const isDemoHost = (c: any) => (c.req.header('host') || '') === DEMO_HOST;
+const isDemoHost = (c: Context<{ Bindings: Env }>) => (c.req.header('host') || '') === DEMO_HOST;
 
 app.use('*', async (c, next) => {
   if (isDemoHost(c) && c.req.path === '/') {
@@ -140,20 +140,36 @@ app.use('/api/*', async (c, next) => {
       });
     }
     
+    if (path.startsWith('/api/share/info/')) {
+      const token = path.slice('/api/share/info/'.length);
+      const item = token === 'demoToken001'
+        ? { token, key: 'uploads/demo-presentation.pdf', name: 'demo-presentation.pdf', size: 2450000, created: d1, noAd: false, downloads: 12 }
+        : token === 'demoToken002'
+          ? { token, key: 'uploads/project-assets.zip', name: 'project-assets.zip', size: 15600000, created: d2, noAd: false, downloads: 5 }
+          : null;
+      return item ? c.json(item) : c.json({ error: '分享链接不存在' }, 404);
+    }
+
     if (path === '/api/share') {
       return c.json({
         shares: [
-          { token: 'demo1', key: 'demo-presentation.pdf', name: 'demo-presentation.pdf', downloads: 12, created: d1, expires: null },
-          { token: 'demo2', key: 'project-assets.zip', name: 'project-assets.zip', downloads: 5, created: d2, expires: new Date(Date.now() + 86400000).toISOString() }
+          { token: 'demoToken001', key: 'uploads/demo-presentation.pdf', name: 'demo-presentation.pdf', downloads: 12, created: d1, expires: null },
+          { token: 'demoToken002', key: 'uploads/project-assets.zip', name: 'project-assets.zip', downloads: 5, created: d2, expires: new Date(Date.now() + 86400000).toISOString() }
         ]
       });
     }
     
+    if (path.startsWith('/api/upload-keys/validate/')) {
+      const id = path.slice('/api/upload-keys/validate/'.length);
+      if (id === 'demoKey00001') return c.json({ valid: true, label: '访客上传', path: 'uploads/Guest/' });
+      return c.json({ valid: false, error: '链接不存在' }, 404);
+    }
+
     if (path === '/api/upload-keys') {
       return c.json({
         keys: [
-          { id: 'key1', label: '访客上传', path: 'uploads/Guest/', usedCount: 3, created: d2, expires: new Date(Date.now() + 86400000).toISOString(), active: true },
-          { id: 'key2', label: '设计文件收取', path: 'uploads/Design/', usedCount: 15, created: d1, expires: new Date(Date.now() - 86400000).toISOString(), active: false }
+          { id: 'demoKey00001', label: '访客上传', path: 'uploads/Guest/', usedCount: 3, created: d2, expires: new Date(Date.now() + 86400000).toISOString(), active: true },
+          { id: 'demoKey00002', label: '设计文件收取', path: 'uploads/Design/', usedCount: 15, created: d1, expires: new Date(Date.now() - 86400000).toISOString(), active: false }
         ]
       });
     }
@@ -175,15 +191,21 @@ app.use('/api/*', async (c, next) => {
 app.get('/login', (c) => c.html(renderLogin(c.env.TURNSTILE_SITE_KEY)));
 app.get('/dashboard', (c) => c.html(renderDashboard(isDemoHost(c))));
 app.get('/', (c) => c.html(renderDashboard(isDemoHost(c))));
-app.get('/s/:token', (c) =>
-  new Response(renderSharePage(c.req.param('token'), c.env.TURNSTILE_SITE_KEY), {
+app.get('/s/:token', (c) => {
+  const token = c.req.param('token');
+  if (!/^[A-Za-z0-9]{12}$/.test(token)) return c.text('Not Found', 404);
+  return new Response(renderSharePage(token, c.env.TURNSTILE_SITE_KEY), {
     headers: {
       'Content-Type': 'text/html; charset=UTF-8',
       'X-Robots-Tag': 'noindex, nofollow, noarchive',
     },
-  })
-);
-app.get('/u/:keyId', (c) => c.html(renderUploadKeyPage(c.req.param('keyId'), c.env.TURNSTILE_SITE_KEY)));
+  });
+});
+app.get('/u/:keyId', (c) => {
+  const keyId = c.req.param('keyId');
+  if (!/^[A-Za-z0-9]{12}$/.test(keyId)) return c.text('Not Found', 404);
+  return c.html(renderUploadKeyPage(keyId, c.env.TURNSTILE_SITE_KEY));
+});
 app.get('/upload', (c) => c.html(renderPublicUploadPage(c.env.TURNSTILE_SITE_KEY)));
 app.get('/gallery', (c) => c.html(renderGallery()));
 app.get('/imgbed', (c) => c.html(renderImgbed(c.env.TURNSTILE_SITE_KEY)));
@@ -191,23 +213,29 @@ app.get('/imgbed', (c) => c.html(renderImgbed(c.env.TURNSTILE_SITE_KEY)));
 // ── Public Image Stream (For Imgbed / Gallery / PicGo fallbacks) ──
 app.get('/f/:key{.+}', async (c) => {
   const key = c.req.param('key');
-  const ext = key.split('.').pop()?.toLowerCase() || '';
-  const ALLOWED_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'];
-  if (!ALLOWED_EXTS.includes(ext)) {
+  try {
+    assertSafeStorageKey(key);
+  } catch {
+    return c.json({ error: '文件路径无效' }, 400);
+  }
+  const contentType = getSafeImageContentType(key);
+  if (!contentType) {
     return c.json({ error: '仅支持图片文件的公开访问' }, 403);
   }
   try {
     const engine = await createStorageEngine(c.env);
     const obj = await engine.get(key);
     if (!obj) return c.text('Not Found', 404);
+    if (!obj.body) return c.text('Storage response has no body', 502);
     return new Response(obj.body, {
       headers: {
-        'Content-Type': obj.httpMetadata?.contentType || 'image/jpeg',
+        'Content-Type': contentType,
         'Cache-Control': 'public, max-age=31536000',
+        'X-Content-Type-Options': 'nosniff',
       }
     });
-  } catch (err: any) {
-    console.error('Public fetch error:', err);
+  } catch (error) {
+    console.error(JSON.stringify({ message: 'public image fetch failed', error: error instanceof Error ? error.message : String(error), key }));
     return c.text('Internal Error', 500);
   }
 });
@@ -267,5 +295,13 @@ ${urls}
 });
 
 app.notFound((c) => c.text('Not Found', 404));
+
+app.onError((error, c) => {
+  console.error('Unhandled request error:', error);
+  if (error instanceof SyntaxError && c.req.path.startsWith('/api/')) {
+    return c.json({ error: '请求格式无效' }, 400);
+  }
+  return c.json({ error: '服务器内部错误' }, 500);
+});
 
 export default app;

@@ -1,7 +1,7 @@
 // 存储引擎抽象层 — 统一 S3 操作接口
 import type { Env, StorageBackendConfig } from './types';
 import type { S3Config } from './s3-upload';
-import { s3PutObject, s3CreateMultipart, s3UploadPart, s3CompleteMultipart } from './s3-upload';
+import { s3PutObject, s3CreateMultipart, s3UploadPart, s3CompleteMultipart, s3AbortMultipart } from './s3-upload';
 import { getAllS3ConfigsAsync, detectPathStyle } from './storage';
 import { amzDate, sha256Hex, hmacHex, getSigningKey } from './s3-sign';
 import { createMetadataStore } from './metadata-store';
@@ -47,12 +47,14 @@ export interface GetResult {
 }
 
 export interface StorageEngine {
+  readonly kind: 'r2' | 's3';
   list(prefix: string, options?: ListOptions): Promise<ListResult>;
   get(key: string): Promise<GetResult | null>;
   head(key: string): Promise<HeadResult | null>;
   put(key: string, data: ArrayBuffer | string, options?: { contentType?: string; customMetadata?: Record<string, string> }): Promise<void>;
   delete(key: string | string[]): Promise<void>;
   createMultipartUpload(key: string, options?: { contentType?: string }): Promise<MultipartUpload>;
+  resumeMultipartUpload(key: string, uploadId: string): MultipartUpload;
 }
 
 
@@ -60,6 +62,8 @@ export interface StorageEngine {
 // ── R2 存储引擎 ──────────────────────────────
 
 class R2StorageEngine implements StorageEngine {
+  readonly kind = 'r2' as const;
+
   constructor(private bucket: R2Bucket) {}
 
   async list(prefix: string, options?: ListOptions): Promise<ListResult> {
@@ -124,9 +128,17 @@ class R2StorageEngine implements StorageEngine {
     const mp = await this.bucket.createMultipartUpload(key, {
       httpMetadata: options?.contentType ? { contentType: options.contentType } : undefined,
     });
+    return this.wrapMultipartUpload(mp);
+  }
+
+  resumeMultipartUpload(key: string, uploadId: string): MultipartUpload {
+    return this.wrapMultipartUpload(this.bucket.resumeMultipartUpload(key, uploadId));
+  }
+
+  private wrapMultipartUpload(mp: R2MultipartUpload): MultipartUpload {
     return {
       uploadId: mp.uploadId,
-      key,
+      key: mp.key,
       uploadPart: (partNumber: number, data: ArrayBuffer) => mp.uploadPart(partNumber, data),
       complete: async (parts) => {
         const obj = await mp.complete(parts);
@@ -140,6 +152,8 @@ class R2StorageEngine implements StorageEngine {
 // ── S3 存储引擎 ──────────────────────────────
 
 class S3StorageEngine implements StorageEngine {
+  readonly kind = 's3' as const;
+
   constructor(private cfg: S3Config) {}
 
   private buildUrl(key: string): { host: string; url: string; path: string } {
@@ -219,8 +233,7 @@ class S3StorageEngine implements StorageEngine {
 
     const res = await fetch(`https://${host}${path}`, { method: 'GET', headers });
     if (!res.ok) {
-      console.error(`S3 ListObjects failed: ${res.status} ${res.statusText} (${prefix})`);
-      return { objects: [], delimitedPrefixes: [], truncated: false };
+      throw new Error(`S3 ListObjects failed: ${res.status} ${res.statusText} (${prefix})`);
     }
 
     const xml = await res.text();
@@ -265,13 +278,15 @@ class S3StorageEngine implements StorageEngine {
     headers['Authorization'] = await this.sign('GET', path, headers, 'UNSIGNED-PAYLOAD');
 
     const res = await fetch(url, { method: 'GET', headers });
-    if (!res.ok) return null;
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`S3 GET failed: ${res.status} ${res.statusText}`);
+    if (!res.body) throw new Error('S3 GET returned an empty response body');
 
-    const buf = await res.arrayBuffer();
     return {
-      text: () => Promise.resolve(new TextDecoder().decode(buf)),
-      arrayBuffer: () => Promise.resolve(buf),
-      size: buf.byteLength,
+      text: () => res.text(),
+      arrayBuffer: () => res.arrayBuffer(),
+      body: res.body,
+      size: Number(res.headers.get('content-length')) || undefined,
       httpMetadata: {
         contentType: res.headers.get('content-type') || undefined,
         contentLanguage: res.headers.get('content-language') || undefined,
@@ -292,7 +307,8 @@ class S3StorageEngine implements StorageEngine {
     headers['Authorization'] = await this.sign('HEAD', path, headers, 'UNSIGNED-PAYLOAD');
 
     const res = await fetch(url, { method: 'HEAD', headers });
-    if (!res.ok) return null;
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`S3 HEAD failed: ${res.status} ${res.statusText}`);
 
     return {
       key,
@@ -304,7 +320,8 @@ class S3StorageEngine implements StorageEngine {
 
   async put(key: string, data: ArrayBuffer | string, options?: { contentType?: string }) {
     const body = typeof data === 'string' ? new TextEncoder().encode(data) : data;
-    await s3PutObject(this.cfg, key, body, options?.contentType || 'application/octet-stream');
+    const ok = await s3PutObject(this.cfg, key, body, options?.contentType || 'application/octet-stream');
+    if (!ok) throw new Error(`S3 PUT failed for ${key}`);
   }
 
   async delete(key: string | string[]) {
@@ -317,7 +334,10 @@ class S3StorageEngine implements StorageEngine {
         'x-amz-date': this.amzDate(),
       };
       headers['Authorization'] = await this.sign('DELETE', path, headers, 'UNSIGNED-PAYLOAD');
-      await fetch(url, { method: 'DELETE', headers }).catch(() => {});
+      const res = await fetch(url, { method: 'DELETE', headers });
+      if (!res.ok && res.status !== 404) {
+        throw new Error(`S3 DELETE failed: ${res.status} ${res.statusText} (${k})`);
+      }
     }
   }
 
@@ -326,22 +346,22 @@ class S3StorageEngine implements StorageEngine {
     const contentType = options?.contentType || 'application/octet-stream';
     const uploadId = await s3CreateMultipart(cfg, key, contentType);
     if (!uploadId) throw new Error('S3 CreateMultipartUpload failed');
+    return this.resumeMultipartUpload(key, uploadId);
+  }
 
-    const parts: { partNumber: number; etag: string }[] = [];
-    const self = this;
-
+  resumeMultipartUpload(key: string, uploadId: string): MultipartUpload {
+    const cfg = this.cfg;
     return {
       uploadId,
       key,
       async uploadPart(partNumber: number, data: ArrayBuffer) {
         const etag = await s3UploadPart(cfg, key, uploadId, partNumber, data);
         if (!etag) throw new Error(`S3 uploadPart ${partNumber} failed`);
-        const p = { partNumber, etag };
-        parts.push(p);
-        return p;
+        return { partNumber, etag };
       },
       async complete(completeParts: { partNumber: number; etag: string }[]) {
-        await s3CompleteMultipart(cfg, key, uploadId, completeParts);
+        const completed = await s3CompleteMultipart(cfg, key, uploadId, completeParts);
+        if (!completed) throw new Error('S3 CompleteMultipartUpload failed');
         // 获取完成后的对象大小
         let size = 0;
         try {
@@ -351,18 +371,8 @@ class S3StorageEngine implements StorageEngine {
         return { key, size };
       },
       async abort() {
-        // S3 AbortMultipartUpload
-        const { host, url, path } = self.buildUrl(key);
-        const qs = `uploadId=${encodeURIComponent(uploadId)}`;
-        const fullPath = path + '?' + qs;
-        const fullUrl = url + '?' + qs;
-        const headers: Record<string, string> = {
-          'Host': host,
-          'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
-          'x-amz-date': self.amzDate(),
-        };
-        headers['Authorization'] = await self.sign('DELETE', fullPath, headers, 'UNSIGNED-PAYLOAD');
-        await fetch(fullUrl, { method: 'DELETE', headers }).catch(() => {});
+        const aborted = await s3AbortMultipart(cfg, key, uploadId);
+        if (!aborted) throw new Error('S3 AbortMultipartUpload failed');
       },
     };
   }
@@ -426,29 +436,20 @@ export async function createStorageEngineForBackend(env: Env, backendName: strin
     return createStorageEngine(env);
   }
 
-  // 从 D1 运行时配置中查找 S3 后端
-  try {
-    const meta = createMetadataStore(env);
-    const runtime = await meta.get<{ backends: import('./types').StorageBackendConfig[]; credentials: Record<string, { accessKey: string; secretKey: string }> }>('_config/storage');
-    if (runtime) {
-      const backend = runtime.backends.find(b => b.name === backendName);
-      if (backend) {
-        const cred = runtime.credentials[backend.name];
-        if (cred) {
-          const pathStyle = backend.pathStyle !== undefined ? backend.pathStyle : detectPathStyle(backend.endpoint, backend.provider);
-          return new S3StorageEngine({
-            endpoint: backend.endpoint,
-            bucket: backend.bucket,
-            region: backend.region,
-            accessKey: cred.accessKey,
-            secretKey: cred.secretKey,
-            pathStyle,
-          });
-        }
-      }
-    }
-  } catch {}
+  // 显式选择后端时必须精确命中，避免配置错误时误操作默认存储。
+  const meta = createMetadataStore(env);
+  const runtime = await meta.get<{ backends: StorageBackendConfig[]; credentials: Record<string, { accessKey: string; secretKey: string }> }>('_config/storage');
+  const backend = runtime?.backends.find(item => item.name === backendName);
+  const cred = backend ? runtime?.credentials[backend.name] : undefined;
+  if (!backend || !cred) throw new Error(`存储后端不存在或凭据未配置: ${backendName}`);
 
-  // 回退到默认引擎
-  return createStorageEngine(env);
+  const pathStyle = backend.pathStyle !== undefined ? backend.pathStyle : detectPathStyle(backend.endpoint, backend.provider);
+  return new S3StorageEngine({
+    endpoint: backend.endpoint,
+    bucket: backend.bucket,
+    region: backend.region,
+    accessKey: cred.accessKey,
+    secretKey: cred.secretKey,
+    pathStyle,
+  });
 }

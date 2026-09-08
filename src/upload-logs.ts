@@ -12,14 +12,16 @@ uploadLogRoutes.use('*', jwtAuth);
 uploadLogRoutes.get('/logs', async (c) => {
   const meta = createMetadataStore(c.env);
   const { keys } = await meta.list('_ul_logs/', { limit: 500 });
-  const logs: any[] = [];
+  const logs: Array<UploadLogEntry & { logKey: string }> = [];
   for (const key of keys) {
     try {
       const entry = await meta.get<UploadLogEntry>(key);
       if (entry) {
         logs.push({ ...entry, logKey: key + '.json' });
       }
-    } catch {}
+    } catch (error) {
+      console.warn(`Skipping invalid upload log ${key}:`, error);
+    }
   }
   logs.sort((a, b) => (a.time > b.time ? -1 : 1));
   return c.json({ logs });
@@ -47,7 +49,7 @@ uploadLogRoutes.delete('/logs/:logKey{.+}', async (c) => {
   const logKey = c.req.param('logKey');
   let key = logKey;
   if (key.endsWith('.json')) key = key.slice(0, -5);
-  if (!key.startsWith('_ul_logs/')) {
+  if (!/^_ul_logs\/[A-Za-z0-9_-]+$/.test(key)) {
     return c.json({ error: 'invalid log key' }, 400);
   }
   await meta.delete(key);
@@ -89,7 +91,7 @@ export async function writeUploadLog(
       os: parsed.os,
       deviceType: parsed.deviceType,
     };
-    const logId = info.source + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    const logId = info.source + '_' + Date.now() + '_' + crypto.randomUUID();
     await meta.put('_ul_logs/' + logId, entry);
   } catch (e) {
     console.error('Failed to write upload log:', e);

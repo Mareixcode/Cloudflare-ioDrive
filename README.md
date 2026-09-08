@@ -266,15 +266,14 @@ chmod +x setup.sh
 - **上传进度条**：实时显示上传进度（单文件与分片均支持）
 - **剪贴板复制**：一键复制分享链接
 - **Curl / Aria2 命令**：分享页面自动生成命令行下载指令
-- **可配置管理员账号**：通过控制台修改管理员用户名和密码，密码 SHA-256 加密存储
+- **可配置管理员账号**：通过控制台修改管理员用户名和密码，密码使用带随机盐的 PBKDF2-SHA256 存储
 
 ### 🗄️ D1 元数据库
 
-- **可切换后端**：在 `wrangler.toml` 配置 `META_DB` binding 即启用 D1（SQLite）模式；未配置时自动回退到 R2 JSON 文件模式
+- **D1 元数据库**：`META_DB` binding 为必需配置，用于账号、分享、日志、上传密钥与分片会话
 - **单表 key-value 设计**：参考 ImgBed 的简化模式，所有元数据（分享、下载日志、上传日志、上传链接、配置、多段上传会话、审核日志）统一存到 `kv` 表
-- **自动建表**：首次请求触发 `d1.exec(initSql)` 创建表结构与索引（幂等）
-- **一次性迁移**：调用 `POST /api/migration/r2-to-d1` 把 R2 中的 `_config/`、`_shares/`、`_dl_logs/`、`_ul_logs/`、`_upload_keys/`、`_multipart/`、`_moderation_logs/` 批量写入 D1
-- **降级安全**：D1 故障被 try/catch 捕获并 fallback 到 R2 JSON
+- **显式初始化**：部署前执行 `database/init.sql`，避免在请求链路动态建表
+- **故障可见**：D1 故障直接返回错误，避免静默回退造成元数据分叉
 
 ### 🔌 WebDAV 网盘挂载
 
@@ -506,7 +505,8 @@ cp wrangler.toml.example wrangler.toml
 ```toml
 name = "iodrive"
 main = "src/index.ts"
-compatibility_date = "2024-12-01"
+compatibility_date = "2026-09-07"
+compatibility_flags = ["nodejs_compat"]
 routes = [{ pattern = "YOUR_DOMAIN/*", zone_name = "YOUR_ZONE" }]
 
 [vars]
@@ -619,7 +619,7 @@ npm run deploy
 | `RANDOM_ENABLED` | 随机图片 API 总开关 | `false` |
 | `RANDOM_ALLOWED_DIRS` | 随机 API 允许的目录 CSV（留空 = 不限制） | 空 |
 
-#### D1 元数据库（可选，启用后元数据改用 SQLite 存储）
+#### D1 元数据库（必需）
 
 ```toml
 [[d1_databases]]
@@ -628,7 +628,7 @@ database_name = "iodrive-meta"
 database_id = "<your-d1-uuid>"
 ```
 
-启用 D1 后调 `POST /api/migration/r2-to-d1`（JWT 鉴权）把现有 R2 JSON 一次性迁移过来。
+部署前必须使用 `database/init.sql` 初始化该数据库。
 
 ### 路由配置
 
@@ -702,7 +702,7 @@ drive/
 │           ├── share-link-1.png      # 分享链接截图-桌面端
 │           └── share-link-2.png      # 分享链接截图-命令下载
 ├── src/
-│   ├── index.ts                      # 🚀 应用入口：路由注册、页面路由、SEO、D1 自动建表
+│   ├── index.ts                      # 🚀 应用入口：路由注册、页面路由、SEO
 │   ├── auth.ts                       # 🔐 JWT 认证：登录、JWT 签发与验证中间件、频率限制
 │   ├── files.ts                      # 📁 文件 CRUD：列表、创建文件夹、删除、批量删除、移动
 │   ├── upload.ts                     # 📤 仪表盘上传：单文件、分片上传（init/part/complete/abort）
@@ -715,7 +715,7 @@ drive/
 │   ├── s3-upload.ts                  # ☁️ S3 上传：AWS Signature V4 实现（单文件 + 分片）
 │   ├── storage-engine.ts             # 🧰 存储引擎抽象：R2 / S3 统一接口
 │   ├── storage-config.ts             # 🗄 多后端存储配置管理
-│   ├── metadata-store.ts             # 🗄 元数据抽象层：R2 JSON / D1 双实现自动切换
+│   ├── metadata-store.ts             # 🗄 D1 元数据存储实现
 │   ├── moderation.ts                 # 🛡 内容审核 Provider 接口 + ModerateContent / NSFWJS 实现
 │   ├── moderation-admin.ts           # 🛡 审核配置 / 日志 / 测试 API
 │   ├── random.ts                     # 🎲 随机图片 API（带 Workers Cache 缓存）
@@ -731,11 +731,8 @@ drive/
 │       ├── upload-key.ts             # 上传链接页面（限时上传）
 │       ├── public-upload.ts          # 公共上传页面（无需登录）
 │       └── demo.ts                   # 演示站 Landing Page
-├── scripts/
-│   └── migrate-to-d1.ts              # 一次性 R2→D1 元数据迁移脚本
 ├── wrangler.toml                     # 生产环境部署配置
 ├── wrangler.toml.example             # 配置文件模板
-├── wrangler.demo.toml                # 演示环境部署配置
 ├── tsconfig.json                     # TypeScript 配置
 ├── package.json                      # 项目依赖与脚本
 ├── LICENSE                           # GPL-3.0 许可证
@@ -1118,22 +1115,6 @@ drive/
 
 ---
 
-### D1 迁移 API
-
-#### `POST /api/migration/r2-to-d1`（需要 JWT）
-
-将 R2 中以 `_config/` / `_shares/` / `_dl_logs/` / `_ul_logs/` / `_upload_keys/` / `_multipart/` / `_moderation_logs/` 为前缀的 JSON 文件批量读取并写入 D1。要求已配置 `META_DB` binding。幂等。
-
-**响应：**
-
-```json
-{
-  "ok": true,
-  "stats": { "_config/": 1, "_shares/": 5, "_dl_logs/": 23 },
-  "errors": []
-}
-```
-
 ### 随机图片 API（公开）
 
 #### `GET /random`
@@ -1262,8 +1243,8 @@ npm run deploy
 
 项目已配置 CI/CD 流水线（`.github/workflows/deploy.yml`）：
 
-- **推送到 `main` 分支** → 自动部署到生产环境（drive.iodevo.com）
-- **推送到 `demo` 分支** → 自动部署到演示环境（demo.iodevo.com）
+- **推送到 `main` 分支** → 将同一个已验证提交自动部署到生产环境和演示环境
+- **推送到 `demo` 分支** → 仅运行类型检查和 dry-run 构建
 - **创建 PR 到 `main` 或 `demo`** → 自动运行类型检查和测试
 
 #### 配置 GitHub Actions

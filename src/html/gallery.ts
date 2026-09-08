@@ -120,6 +120,10 @@ export function renderGallery(): string {
       return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
+    function esc(value) {
+      return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     function openLightbox(url) {
       document.getElementById('lightbox-img').src = url;
       const lb = document.getElementById('lightbox');
@@ -150,10 +154,10 @@ export function renderGallery(): string {
 
         let html = '';
         data.items.forEach(item => {
-          html += '<div class="gallery-item" onclick="openLightbox(\\'' + item.url + '\\')">' +
-                  '<img src="' + item.url + '" loading="lazy" alt="' + item.name + '">' +
+          html += '<div class="gallery-item" data-url="' + esc(item.url) + '" onclick="openLightbox(this.dataset.url)">' +
+                  '<img src="' + esc(item.url) + '" loading="lazy" alt="' + esc(item.name) + '">' +
                   '<div class="info">' +
-                  '<span class="name" title="' + item.name + '">' + item.name + '</span>' +
+                  '<span class="name" title="' + esc(item.name) + '">' + esc(item.name) + '</span>' +
                   '<span class="size">' + formatSize(item.size) + '</span>' +
                   '</div></div>';
         });

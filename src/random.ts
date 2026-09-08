@@ -20,6 +20,7 @@ import type { Env } from './types';
 import { createStorageEngine } from './storage-engine';
 import { jwtAuth } from './auth';
 import { cors } from 'hono/cors';
+import { normalizeUploadDirectory } from './storage-path';
 
 export const randomRoutes = new Hono<{ Bindings: Env }>();
 
@@ -39,21 +40,31 @@ randomRoutes.get('/', async (c) => {
     return c.json({ error: 'random API disabled' }, 403);
   }
 
-  const dir = c.req.query('dir') || '';
+  let dir: string;
+  try {
+    dir = normalizeUploadDirectory(c.req.query('dir') || 'uploads/');
+  } catch {
+    return c.json({ error: 'invalid directory' }, 400);
+  }
   const contentFilter = (c.req.query('content') || 'image').toLowerCase();
   const orientation = (c.req.query('orientation') || 'all').toLowerCase() as 'all' | Orientation;
   const type = c.req.query('type') || ''; // 'img' | 'url' | ''
   const form = c.req.query('form') || ''; // 'text' | ''
 
   // 1. 白名单校验
-  const allowedDirs = (c.env.RANDOM_ALLOWED_DIRS || '').split(',').map(s => s.trim()).filter(Boolean);
+  let allowedDirs: string[];
+  try {
+    allowedDirs = (c.env.RANDOM_ALLOWED_DIRS || '').split(',').map(s => s.trim()).filter(Boolean).map(normalizeUploadDirectory);
+  } catch {
+    return c.json({ error: 'RANDOM_ALLOWED_DIRS configuration is invalid' }, 500);
+  }
   if (allowedDirs.length > 0 && !allowedDirs.includes(dir)) {
     return c.json({ error: 'directory not in allowlist' }, 403);
   }
 
   // 2. 缓存
   const origin = new URL(c.req.url).origin;
-  const cacheKey = new Request(`${origin}/_random_cache?dir=${encodeURIComponent(dir)}&content=${encodeURIComponent(contentFilter)}`);
+  const cacheKey = new Request(`${origin}/_random_cache?dir=${encodeURIComponent(dir)}`);
   let entries: IndexEntry[] | null = null;
   try {
     const cached = await caches.default.match(cacheKey);
@@ -62,7 +73,7 @@ randomRoutes.get('/', async (c) => {
 
   if (!entries) {
     const engine = await createStorageEngine(c.env);
-    const prefix = dir.endsWith('/') ? dir : dir + '/';
+    const prefix = dir;
     const all: IndexEntry[] = [];
     let cursor: string | undefined;
     do {
@@ -85,10 +96,11 @@ randomRoutes.get('/', async (c) => {
     entries = all;
     try {
       const cacheResponse = new Response(JSON.stringify(entries), {
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=86400',
+        },
       });
-      // Workers Cache API put 第二个参数只支持 Response，不支持 init options；
-      // 通过自定义 header 来表达 TTL，让后续 read 时判断是否过期
       await caches.default.put(cacheKey, cacheResponse);
     } catch {}
   }
@@ -119,23 +131,25 @@ randomRoutes.get('/', async (c) => {
   const picked = filtered[Math.floor(Math.random() * filtered.length)];
 
   // 6. 响应格式
-  const r2Domain = c.env.PUBLIC_DOMAIN || (new URL(c.req.url).host);
   const urlPath = '/' + picked.key.split('/').map(encodeURIComponent).join('/');
+  const publicUrl = c.env.PUBLIC_DOMAIN
+    ? 'https://' + c.env.PUBLIC_DOMAIN + urlPath
+    : origin + '/f' + urlPath;
 
   if (form === 'text') {
-    return c.text('https://' + r2Domain + urlPath);
+    return c.text(publicUrl);
   }
 
   if (type === 'img') {
-    return c.redirect('https://' + r2Domain + urlPath, 302);
+    return c.redirect(publicUrl, 302);
   }
 
   if (type === 'url') {
-    return c.json({ url: 'https://' + r2Domain + urlPath });
+    return c.json({ url: publicUrl });
   }
 
   // 默认 JSON {url: 相对路径}
-  return c.json({ url: urlPath });
+  return c.json({ url: c.env.PUBLIC_DOMAIN ? urlPath : '/f' + urlPath });
 });
 
 function detectOrientation(ua: string): Orientation {
@@ -158,10 +172,13 @@ randomAdminRoutes.post('/refresh', async (c) => {
   // Workers Cache API 不支持列举/批量删除；只能逐个 delete。
   // 这里提供简单实现：要求客户端告知要刷新的 dir。
   const body = await c.req.json().catch(() => ({} as { dirs?: string[] }));
-  const dirs = (body && body.dirs) || [];
+  const dirs = Array.isArray(body?.dirs) ? body.dirs : [];
   const origin = new URL(c.req.url).origin;
   let deleted = 0;
-  for (const dir of dirs) {
+  for (const value of dirs) {
+    if (typeof value !== 'string') continue;
+    let dir: string;
+    try { dir = normalizeUploadDirectory(value || 'uploads/'); } catch { continue; }
     const key = new Request(`${origin}/_random_cache?dir=${encodeURIComponent(dir)}`);
     const ok = await caches.default.delete(key);
     if (ok) deleted++;
