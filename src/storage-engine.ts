@@ -351,6 +351,7 @@ class S3StorageEngine implements StorageEngine {
 
   resumeMultipartUpload(key: string, uploadId: string): MultipartUpload {
     const cfg = this.cfg;
+    const engine = this;
     return {
       uploadId,
       key,
@@ -365,7 +366,7 @@ class S3StorageEngine implements StorageEngine {
         // 获取完成后的对象大小
         let size = 0;
         try {
-          const head = await self.head(key);
+          const head = await engine.head(key);
           if (head) size = head.size;
         } catch {}
         return { key, size };

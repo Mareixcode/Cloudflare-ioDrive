@@ -51,6 +51,7 @@ downloadRoutes.delete('/logs', jwtAuth, async (c) => {
 downloadRoutes.delete('/logs/:logKey{.+}', jwtAuth, async (c) => {
   const meta = createMetadataStore(c.env);
   const logKey = c.req.param('logKey');
+  if (!logKey) return c.json({ error: 'invalid log key' }, 400);
   let key = logKey;
   if (key.endsWith('.json')) key = key.slice(0, -5);
   if (!/^_dl_logs\/[A-Za-z0-9_-]+$/.test(key)) {
@@ -65,6 +66,7 @@ downloadRoutes.get('/presign/:key{.+}', jwtAuth, async (c) => {
   const engine = await createStorageEngine(c.env);
   const meta = createMetadataStore(c.env);
   const key = c.req.param('key');
+  if (!key) return c.json({ error: '文件路径无效' }, 400);
   try {
     assertSafeStorageKey(key);
   } catch {
